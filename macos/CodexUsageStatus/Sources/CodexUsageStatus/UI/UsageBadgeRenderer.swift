@@ -253,14 +253,7 @@ enum UsageBadgeRenderer {
     }
 
     private static func color(for percent: Int) -> NSColor {
-        switch percent {
-        case 50...100:
-            return .systemGreen
-        case 20..<50:
-            return .systemOrange
-        default:
-            return .systemRed
-        }
+        percent < 20 ? .systemRed : .labelColor
     }
 }
 
