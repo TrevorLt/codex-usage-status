@@ -13,6 +13,8 @@ if CommandLine.arguments.contains("--once") {
 }
 
 let app = NSApplication.shared
-let delegate = AppDelegate()
-app.delegate = delegate
-app.run()
+MainActor.assumeIsolated {
+    let delegate = AppDelegate()
+    app.delegate = delegate
+    app.run()
+}
