@@ -4,6 +4,9 @@ enum AppConfig {
     static let defaultCodexPath = "/Applications/Codex.app/Contents/Resources/codex"
     static let minimumRefreshInterval: TimeInterval = 60
     static let defaultRefreshInterval: TimeInterval = 120
+    static let maximumRefreshInterval: TimeInterval = 300
+    static let significantDropPercentagePoints = 5
+    static let stableBackoffInterval: TimeInterval = 60
     static let errorRetryInterval: TimeInterval = 300
     static let appServerTimeout: DispatchTimeInterval = .seconds(20)
 }

@@ -15,7 +15,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private var timer: Timer?
     private var isRefreshing = false
-    private let refreshInterval = configuredRefreshInterval()
+    private var refreshPolicy = RefreshPolicy()
     private var badgeStyle = BadgeStyle.load()
     private var lastUsage: UsageSummary?
     private var lastRefreshDate: Date?
@@ -99,7 +99,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         \(status)
 
         Display style: \(badgeStyle.menuTitle)
-        Refresh interval: \(Int(refreshInterval)) seconds
+        Next refresh: \(Int(refreshPolicy.currentInterval)) seconds (adaptive)
         Failure retry: \(Int(AppConfig.errorRetryInterval)) seconds
         Last refresh: \(lastRefresh)
         Data source: local Codex app-server
@@ -143,17 +143,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
             do {
                 let usage = try await CodexUsageFetcher.fetch()
+                let previousSnapshot = self.lastUsage.map(UsageRefreshSnapshot.init)
                 self.isRefreshing = false
                 self.refreshItem.isEnabled = true
                 self.refreshItem.title = "Refresh"
                 self.applyUsage(usage)
-                self.scheduleNextRefresh(after: self.refreshInterval)
+                let nextInterval = self.refreshPolicy.nextInterval(
+                    previous: previousSnapshot,
+                    current: UsageRefreshSnapshot(usage),
+                    now: Date()
+                )
+                self.scheduleNextRefresh(after: nextInterval)
             } catch {
                 self.isRefreshing = false
                 self.refreshItem.isEnabled = true
                 self.refreshItem.title = "Refresh"
                 self.applyError(error)
-                self.scheduleNextRefresh(after: AppConfig.errorRetryInterval)
+                self.scheduleNextRefresh(after: self.refreshPolicy.intervalAfterFailure())
             }
         }
     }

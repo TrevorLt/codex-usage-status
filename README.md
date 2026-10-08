@@ -82,7 +82,14 @@ To change the menu-bar display, click the badge and choose Display Style:
 - Double Ring: compact default with side labels and circular quota indicators.
 - Large Readout: larger numbers with subtle status lines for easier reading.
 
-The default refresh interval is 120 seconds, with a 60-second minimum. To override it:
+Refresh scheduling is adaptive to reduce stale readings without polling aggressively:
+
+- Normal operation refreshes every 120 seconds.
+- A drop of at least 5 percentage points in either usage window schedules the next refresh after 60 seconds.
+- If usage remains stable, the interval backs off to 120, then 240, and finally 300 seconds.
+- Failed requests retry after 300 seconds.
+
+The app never refreshes more often than once per 60 seconds. To override the normal interval:
 
 ```sh
 CODEX_USAGE_REFRESH_SECONDS=180 npm run start:macos
