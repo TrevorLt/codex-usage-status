@@ -20,6 +20,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var lastUsage: UsageSummary?
     private var lastRefreshDate: Date?
     private var lastError: Error?
+    private var appearanceObserver: ApplicationAppearanceObserver?
 
     private lazy var dateFormatter: DateFormatter = {
         let formatter = DateFormatter()
@@ -37,6 +38,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             button.title = ""
             button.imagePosition = .imageOnly
             button.toolTip = "Codex usage: waiting for first refresh"
+        }
+        appearanceObserver = ApplicationAppearanceObserver { [weak self] in
+            self?.renderCurrentBadge()
         }
         renderCurrentBadge()
 
