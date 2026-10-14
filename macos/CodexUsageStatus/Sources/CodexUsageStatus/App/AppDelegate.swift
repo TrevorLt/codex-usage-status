@@ -189,15 +189,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem.length = UsageBadgeRenderer.statusItemLength(for: badgeStyle)
         if let button = statusItem.button {
             button.title = ""
+            let appearance = NSApp.effectiveAppearance
 
             if let lastError {
-                button.image = UsageBadgeRenderer.errorImage(style: badgeStyle, appearance: button.effectiveAppearance)
+                button.image = UsageBadgeRenderer.errorImage(style: badgeStyle, appearance: appearance)
                 button.toolTip = "Codex usage: \(lastError.localizedDescription)"
             } else if let lastUsage {
-                button.image = UsageBadgeRenderer.image(for: lastUsage, style: badgeStyle, appearance: button.effectiveAppearance)
+                button.image = UsageBadgeRenderer.image(for: lastUsage, style: badgeStyle, appearance: appearance)
                 button.toolTip = lastUsage.tooltip(formatter: dateFormatter)
             } else {
-                button.image = UsageBadgeRenderer.placeholderImage(style: badgeStyle, appearance: button.effectiveAppearance)
+                button.image = UsageBadgeRenderer.placeholderImage(style: badgeStyle, appearance: appearance)
                 button.toolTip = "Codex usage: waiting for first refresh"
             }
         }
