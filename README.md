@@ -2,7 +2,7 @@
 
 An independent macOS menu-bar companion for showing Codex usage at a glance.
 
-![Codex Usage Status menu-bar badge](docs/assets/menu-bar-badge.png)
+![Codex Usage Status current menu-bar badge](docs/assets/menu-bar-badge-current.png)
 
 This repository is an independent continuation based on [tollenceld/codex-usage-status](https://github.com/tollenceld/codex-usage-status), originally created by [@tollenceld](https://github.com/tollenceld). The original project and its MIT license remain credited; this repository is maintained independently.
 
