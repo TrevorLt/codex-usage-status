@@ -1,20 +1,39 @@
 # Codex Usage Status
 
-Small macOS menu-bar app for showing Codex usage at a glance.
+An independent macOS menu-bar companion for showing Codex usage at a glance.
 
 ![Codex Usage Status menu-bar badge](docs/assets/menu-bar-badge.png)
 
-It displays usage as a compact side-labeled double-ring badge:
+This repository is an independent continuation based on [tollenceld/codex-usage-status](https://github.com/tollenceld/codex-usage-status), originally created by [@tollenceld](https://github.com/tollenceld). The original project and its MIT license remain credited; this repository is maintained independently.
 
-- left ring group: 5-hour remaining percentage
-- right ring group: weekly remaining percentage
+## Current design
+
+The menu-bar badge uses a compact side-labeled double-ring layout:
+
+- left ring group: 5-hour remaining percentage (`5H`)
+- right ring group: weekly / 7-day remaining percentage (`7D`)
 - ring progress: remaining quota status
 - ring center number: remaining percentage
-- side labels: `5H` and `7D`
+- no capsule background, so it stays visually lightweight beside the other macOS status items
 
-The menu-bar badge is the primary interface. Clicking it only exposes the necessary actions: Refresh, Settings, and Quit.
+The normal badge uses macOS's native menu-bar template tinting. This lets the icon follow the surrounding status-bar contrast automatically instead of forcing a fixed light/dark color. When either remaining value falls below 20%, that window turns system red as an actionable warning; normal values remain neutral.
 
-Double Ring is the default display style. It uses no capsule background, and each label sits beside its own ring instead of inside the ring. A larger accessibility-oriented style is available from Display Style > Large Readout. Large Readout keeps the same two values visible in the menu bar, but prioritizes even larger readable numbers with weak `5H` / `7D` labels and thin status lines.
+The menu-bar badge is the primary interface. Clicking it exposes only the necessary actions: Refresh, Display Style, Settings, and Quit.
+
+Double Ring is the default display style. A larger accessibility-oriented style is available from Display Style > Large Readout. Large Readout keeps both values visible while prioritizing larger readable numbers with weak `5H` / `7D` labels and thin status lines.
+
+## Adaptive refresh
+
+The app uses a conservative adaptive schedule so active usage is detected quickly without polling continuously:
+
+- normal baseline: refresh every 120 seconds
+- significant change: when either window drops by at least 5 percentage points, refresh again after 30 seconds
+- active-change window: stay at the 30-second cadence while the significant drop is within the last 60 seconds
+- stable backoff: after stability returns, back off to 120 seconds, then 240 seconds, and finally 300 seconds
+- failed request: retry after 300 seconds
+- manual refresh: always available from the menu
+
+The current build never schedules automatic refreshes more frequently than every 30 seconds. `CODEX_USAGE_REFRESH_SECONDS` can change the normal baseline, but cannot lower that 30-second floor.
 
 ## Safety model
 
@@ -25,19 +44,19 @@ See [PRIVACY.md](PRIVACY.md) for the user-facing privacy summary and [SECURITY.m
 ## Requirements
 
 - macOS 13 or later
-- Codex desktop installed at `/Applications/Codex.app`
-- You are already signed in to Codex
+- Codex desktop installed and already signed in
+- The local Codex app-server executable must be available at `/Applications/Codex.app/Contents/Resources/codex` or supplied through `CODEX_BIN`
 
 ## Install from release
 
-1. Download the latest release ZIP for your Mac from [GitHub Releases](https://github.com/tollenceld/codex-usage-status/releases/latest):
+1. Download the latest release ZIP for your Mac from [GitHub Releases](https://github.com/TrevorLt/codex-usage-status/releases):
    - Apple Silicon: `CodexUsageStatus-<version>-macos-arm64.zip`
    - Intel: `CodexUsageStatus-<version>-macos-x86_64.zip`
 2. Unzip it.
 3. Move `CodexUsageStatus.app` to `/Applications`.
 4. Open `CodexUsageStatus.app`.
 
-The app is a menu-bar-only app, so it does not appear in the Dock. Optional: add it to macOS System Settings > General > Login Items.
+The app is menu-bar-only, so it does not appear in the Dock. To launch it automatically after login, add `CodexUsageStatus.app` in macOS System Settings > General > Login Items.
 
 Unsigned GitHub builds may trigger macOS Gatekeeper warnings. For a public polished release, sign with an Apple Developer ID and notarize the app.
 
@@ -82,14 +101,7 @@ To change the menu-bar display, click the badge and choose Display Style:
 - Double Ring: compact default with side labels and circular quota indicators.
 - Large Readout: larger numbers with subtle status lines for easier reading.
 
-Refresh scheduling is adaptive to reduce stale readings without polling aggressively:
-
-- Normal operation refreshes every 120 seconds.
-- A drop of at least 5 percentage points in either usage window schedules the next refresh after 60 seconds.
-- If usage remains stable, the interval backs off to 120, then 240, and finally 300 seconds.
-- Failed requests retry after 300 seconds.
-
-The app never refreshes more often than once per 60 seconds. To override the normal interval:
+To override the normal baseline interval while keeping the 30-second minimum:
 
 ```sh
 CODEX_USAGE_REFRESH_SECONDS=180 npm run start:macos
