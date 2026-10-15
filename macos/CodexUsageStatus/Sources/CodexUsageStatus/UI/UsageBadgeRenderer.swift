@@ -45,23 +45,30 @@ enum UsageBadgeRenderer {
         appearance: NSAppearance,
         forcedColor: NSColor? = nil
     ) -> NSImage {
+        let usesTemplateTint = forcedColor == nil && !containsWarning(left: left, right: right)
+
         switch style {
         case .doubleRing:
-            return renderDoubleRing(left: left, right: right, appearance: appearance, forcedColor: forcedColor)
+            return renderDoubleRing(left: left, right: right, appearance: appearance, forcedColor: forcedColor, usesTemplateTint: usesTemplateTint)
         case .largeReadout:
-            return renderLargeReadout(left: left, right: right, appearance: appearance, forcedColor: forcedColor)
+            return renderLargeReadout(left: left, right: right, appearance: appearance, forcedColor: forcedColor, usesTemplateTint: usesTemplateTint)
         }
+    }
+
+    private static func containsWarning(left: BadgeValue, right: BadgeValue) -> Bool {
+        [left.percent, right.percent].compactMap { $0 }.contains { $0 < 20 }
     }
 
     private static func renderDoubleRing(
         left: BadgeValue,
         right: BadgeValue,
         appearance: NSAppearance,
-        forcedColor: NSColor?
+        forcedColor: NSColor?,
+        usesTemplateTint: Bool
     ) -> NSImage {
         let imageSize = doubleRingImageSize
         let image = NSImage(size: imageSize)
-        let foregroundColor = foregroundColor(for: appearance)
+        let foregroundColor = usesTemplateTint ? NSColor.black : neutralColor
         image.lockFocus()
         defer { image.unlockFocus() }
 
@@ -79,7 +86,7 @@ enum UsageBadgeRenderer {
             drawLabeledRing(value: right, labelRect: NSRect(x: 50, y: 4.0, width: 11, height: 16), ringCenter: NSPoint(x: 75, y: 12), foregroundColor: foregroundColor, forcedColor: forcedColor)
         }
 
-        image.isTemplate = false
+        image.isTemplate = usesTemplateTint
         return image
     }
 
@@ -87,11 +94,12 @@ enum UsageBadgeRenderer {
         left: BadgeValue,
         right: BadgeValue,
         appearance: NSAppearance,
-        forcedColor: NSColor?
+        forcedColor: NSColor?,
+        usesTemplateTint: Bool
     ) -> NSImage {
         let imageSize = largeReadoutImageSize
         let image = NSImage(size: imageSize)
-        let foregroundColor = foregroundColor(for: appearance)
+        let foregroundColor = usesTemplateTint ? NSColor.black : neutralColor
         image.lockFocus()
         defer { image.unlockFocus() }
 
@@ -109,7 +117,7 @@ enum UsageBadgeRenderer {
             drawReadoutGroup(value: right, labelRect: NSRect(x: 49, y: 4.0, width: 11, height: 16), numberRect: NSRect(x: 61, y: 3.4, width: 25, height: 17), lineRect: NSRect(x: 48, y: 2.4, width: 36, height: 1.5), foregroundColor: foregroundColor, forcedColor: forcedColor)
         }
 
-        image.isTemplate = false
+        image.isTemplate = usesTemplateTint
         return image
     }
 
@@ -258,9 +266,7 @@ enum UsageBadgeRenderer {
         return style
     }
 
-    static func foregroundColor(for appearance: NSAppearance) -> NSColor {
-        appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? .black : .white
-    }
+    private static let neutralColor = NSColor.labelColor
 
     private static func color(for percent: Int, foregroundColor: NSColor) -> NSColor {
         percent < 20 ? .systemRed : foregroundColor

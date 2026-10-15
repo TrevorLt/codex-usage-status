@@ -189,7 +189,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem.length = UsageBadgeRenderer.statusItemLength(for: badgeStyle)
         if let button = statusItem.button {
             button.title = ""
-            let appearance = NSApp.effectiveAppearance
+            let appearance = button.effectiveAppearance
 
             if let lastError {
                 button.image = UsageBadgeRenderer.errorImage(style: badgeStyle, appearance: appearance)
