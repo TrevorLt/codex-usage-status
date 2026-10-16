@@ -62,7 +62,7 @@ See [PRIVACY.md](PRIVACY.md) for the user-facing privacy summary and [SECURITY.m
 
 - macOS 13 or later
 - Codex desktop installed and already signed in
-- The local Codex app-server executable must be available at `/Applications/Codex.app/Contents/Resources/codex` or supplied through `CODEX_BIN`
+- The app automatically checks the common Codex desktop layouts in `/Applications` and `~/Applications`, including `Codex.app` and `ChatGPT.app`; `CODEX_BIN` remains available for a custom development install
 
 ## Install from release
 
@@ -75,15 +75,19 @@ See [PRIVACY.md](PRIVACY.md) for the user-facing privacy summary and [SECURITY.m
 
 The app is menu-bar-only, so it does not appear in the Dock. The bundle includes the 1B-M `CodexUsageStatus.icns` app icon. To launch it automatically after login, add `CodexUsageStatus.app` in macOS System Settings > General > Login Items, or manage it with a per-user LaunchAgent if you are maintaining a developer installation.
 
+On its first refresh, the app automatically checks the legacy Codex layout, the current ChatGPT-bundled Codex CLI shim, the nested Codex app-server executable, and per-user `/Applications` locations. If none is executable, hover the red `?` badge or open Settings to see the checked locations and the next action.
+
 Unsigned GitHub builds may trigger macOS Gatekeeper warnings. For a public polished release, sign with an Apple Developer ID and notarize the app.
 
 ## Known limitations
 
-- Codex desktop must be installed at `/Applications/Codex.app`, unless `CODEX_BIN` is set for development.
+- A custom Codex installation outside the known `/Applications` and `~/Applications` layouts requires `CODEX_BIN` for a source/developer launch.
 - You must already be signed in to Codex.
 - Live usage depends on Codex's local app-server method `account/rateLimits/read`; if that local interface changes, this app may need an update.
 - The app shows usage only. It cannot buy credits, switch accounts, retry login, or change limits.
 - Local builds are ad-hoc signed by default. Downloaded release ZIPs may show Gatekeeper warnings until a notarized build is available.
+
+For a failure matrix and diagnostic interpretation, see [docs/diagnostics.md](docs/diagnostics.md).
 
 ## Build from source
 

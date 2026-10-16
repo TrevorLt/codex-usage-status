@@ -179,13 +179,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         let lastRefresh = lastRefreshDate.map { dateFormatter.string(from: $0) } ?? "Never"
         let nextRefresh = nextRefreshAt.map { "in \(max(0, Int($0.timeIntervalSinceNow))) seconds" } ?? (isSleeping ? "after wake" : "in progress")
+        let appVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "unknown"
+        let codexPath = CodexPathResolver.firstExecutablePath(in: CodexPathResolver.candidatePaths()) ?? "not found in known locations"
         let message = """
         \(status)
 
+        App version: \(appVersion)
         Display style: \(badgeStyle.menuTitle)
         Next refresh: \(nextRefresh)
         Failure retry: \(Int(AppConfig.errorRetryInterval)) seconds
         Last refresh: \(lastRefresh)
+        Codex executable: \(codexPath)
         Data source: local Codex app-server
         """
 
