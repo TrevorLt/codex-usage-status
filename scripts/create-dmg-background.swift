@@ -53,9 +53,14 @@ guard let outputPath = argument(named: "--output"),
     exit(2)
 }
 
+guard let scaleValue = Double(argument(named: "--scale") ?? "1"), scaleValue == 1 || scaleValue == 2 else {
+    fputs("Scale must be 1 or 2\n", stderr)
+    exit(2)
+}
+
 let logicalWidth: CGFloat = 960
 let logicalHeight: CGFloat = 600
-let scale: CGFloat = 2
+let scale: CGFloat = CGFloat(scaleValue)
 let width = Int(logicalWidth * scale)
 let height = Int(logicalHeight * scale)
 let colorSpace = CGColorSpace(name: CGColorSpace.sRGB)!
