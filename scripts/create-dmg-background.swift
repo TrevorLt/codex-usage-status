@@ -53,8 +53,11 @@ guard let outputPath = argument(named: "--output"),
     exit(2)
 }
 
-let width = 960
-let height = 600
+let logicalWidth: CGFloat = 960
+let logicalHeight: CGFloat = 600
+let scale: CGFloat = 2
+let width = Int(logicalWidth * scale)
+let height = Int(logicalHeight * scale)
 let colorSpace = CGColorSpace(name: CGColorSpace.sRGB)!
 let bitmapInfo = CGImageAlphaInfo.premultipliedLast.rawValue
 guard let context = CGContext(
@@ -70,10 +73,12 @@ guard let context = CGContext(
     exit(1)
 }
 
+context.scaleBy(x: scale, y: scale)
+
 let top = cgColor(0.97, 0.97, 0.985)
 let bottom = cgColor(0.91, 0.90, 0.98)
 let gradient = CGGradient(colorsSpace: colorSpace, colors: [top, bottom] as CFArray, locations: [0, 1])!
-context.drawLinearGradient(gradient, start: CGPoint(x: 0, y: height), end: CGPoint(x: 0, y: 0), options: [])
+context.drawLinearGradient(gradient, start: CGPoint(x: 0, y: logicalHeight), end: CGPoint(x: 0, y: 0), options: [])
 
 let charcoal = cgColor(0.122, 0.137, 0.161)
 let muted = cgColor(0.33, 0.34, 0.40)

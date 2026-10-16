@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SWIFT_DIR="$ROOT_DIR/macos/CodexUsageStatus"
 DIST_DIR="$ROOT_DIR/dist"
-APP_DIR="$DIST_DIR/CodexUsageStatus.app"
+APP_DIR="$DIST_DIR/Codex Usage Status.app"
 CONTENTS_DIR="$APP_DIR/Contents"
 MACOS_DIR="$CONTENTS_DIR/MacOS"
 RESOURCES_DIR="$CONTENTS_DIR/Resources"
@@ -86,6 +86,8 @@ cat > "$CONTENTS_DIR/Info.plist" <<'PLIST'
   <key>CFBundleIdentifier</key>
   <string>dev.local.CodexUsageStatus</string>
   <key>CFBundleName</key>
+  <string>Codex Usage Status</string>
+  <key>CFBundleDisplayName</key>
   <string>Codex Usage Status</string>
   <key>CFBundleIconFile</key>
   <string>CodexUsageStatus.icns</string>
