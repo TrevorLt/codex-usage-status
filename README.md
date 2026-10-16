@@ -73,7 +73,7 @@ See [PRIVACY.md](PRIVACY.md) for the user-facing privacy summary and [SECURITY.m
 3. Move `Codex Usage Status.app` to `/Applications`.
 4. Open `Codex Usage Status.app`.
 
-You can also download the matching DMG for a standard macOS drag-to-install experience. Open the DMG and drag `Codex Usage Status` onto the `Applications` shortcut. The mounted disk uses the same 1B-M logo, and the installer uses a Retina-ready lightweight charcoal/lavender layout; it does not install background helpers or change unrelated system settings.
+You can also download the matching DMG for a standard macOS drag-to-install experience. Open the DMG and drag `Codex Usage Status` onto the `Applications` shortcut. The mounted disk uses the same 1B-M logo as its volume icon, and its Finder background is a multi-resolution 1x/2x TIFF so the charcoal/lavender layout stays sharp on Retina displays. It does not install background helpers or change unrelated system settings.
 
 The app is menu-bar-only, so it does not appear in the Dock. The bundle includes the 1B-M `CodexUsageStatus.icns` app icon, while its user-facing name is `Codex Usage Status`. To launch it automatically after login, add `Codex Usage Status.app` in macOS System Settings > General > Login Items, or manage it with a per-user LaunchAgent if you are maintaining a developer installation.
 
@@ -167,7 +167,7 @@ Release ZIPs are architecture-specific:
 - `CodexUsageStatus-<version>-macos-arm64.dmg` for Apple Silicon Macs.
 - `CodexUsageStatus-<version>-macos-x86_64.dmg` for Intel Macs.
 
-Each release ZIP and DMG contains the same 1B-M app icon; only the executable architecture differs.
+Each release ZIP and DMG contains the same 1B-M app icon; each DMG also includes the matching 1B-M volume icon and 1x/2x Finder background. Only the executable architecture differs between arm64 and x86_64 packages.
 
 For another MacBook, the most reliable source-build path is to clone the repository on that Mac and run `npm run install:macos`; it will build the correct native architecture there.
 
