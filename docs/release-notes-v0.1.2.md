@@ -12,6 +12,7 @@ This release improves first-run compatibility and makes failed refreshes diagnos
 - Does not display raw app-server stderr or server error text that could contain sensitive material.
 - Keeps the existing local-only, read-only app-server safety boundary and neutral template menu-bar display.
 - Keeps the existing adaptive refresh, sleep/wake recovery, last-good stale display, and below-20% red warning behavior.
+- Adds architecture-specific DMG installers with a Finder drag-to-Applications layout using the 1B-M app icon and the project's charcoal/lavender visual language.
 
 ## Compatibility note
 
@@ -25,6 +26,7 @@ The v0.1.1 release only checked `/Applications/Codex.app/Contents/Resources/code
 - Sleep/wake recovery harness passes.
 - 1B-M icon geometry and packaging checks pass.
 - arm64 and x86_64 app bundles build and strict ad-hoc signature verification passes.
+- arm64 and x86_64 ZIP and DMG checksums, disk-image verification, and installer payload checks pass.
 
 ## Credit
 

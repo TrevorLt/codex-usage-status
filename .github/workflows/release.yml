@@ -26,4 +26,5 @@ jobs:
           name: CodexUsageStatus-macos-${{ matrix.arch }}
           path: |
             dist/*.zip
+            dist/*.dmg
             dist/SHA256SUMS.txt

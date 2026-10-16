@@ -73,6 +73,8 @@ See [PRIVACY.md](PRIVACY.md) for the user-facing privacy summary and [SECURITY.m
 3. Move `CodexUsageStatus.app` to `/Applications`.
 4. Open `CodexUsageStatus.app`.
 
+You can also download the matching DMG for a standard macOS drag-to-install experience. Open the DMG and drag `CodexUsageStatus.app` onto the `Applications` shortcut. The DMG uses the same 1B-M app icon and a lightweight charcoal/lavender installation layout; it does not install background helpers or change unrelated system settings.
+
 The app is menu-bar-only, so it does not appear in the Dock. The bundle includes the 1B-M `CodexUsageStatus.icns` app icon. To launch it automatically after login, add `CodexUsageStatus.app` in macOS System Settings > General > Login Items, or manage it with a per-user LaunchAgent if you are maintaining a developer installation.
 
 On its first refresh, the app automatically checks the legacy Codex layout, the current ChatGPT-bundled Codex CLI shim, the nested Codex app-server executable, and per-user `/Applications` locations. If none is executable, hover the red `?` badge or open Settings to see the checked locations and the next action.
@@ -156,14 +158,16 @@ npm run package:macos
 npm run package:macos:all
 ```
 
-`package:macos` creates a zipped `.app` for the current Mac architecture. `package:macos:all` creates both `arm64` and `x86_64` ZIPs plus `SHA256SUMS.txt` in `dist/`.
+`package:macos` creates an architecture-specific ZIP and DMG for the current Mac. `package:macos:all` creates both `arm64` and `x86_64` ZIPs and DMGs plus `SHA256SUMS.txt` in `dist/`.
 
 Release ZIPs are architecture-specific:
 
 - `CodexUsageStatus-<version>-macos-arm64.zip` for Apple Silicon Macs.
 - `CodexUsageStatus-<version>-macos-x86_64.zip` for Intel Macs.
+- `CodexUsageStatus-<version>-macos-arm64.dmg` for Apple Silicon Macs.
+- `CodexUsageStatus-<version>-macos-x86_64.dmg` for Intel Macs.
 
-Each release ZIP contains the same 1B-M app icon; only the executable architecture differs.
+Each release ZIP and DMG contains the same 1B-M app icon; only the executable architecture differs.
 
 For another MacBook, the most reliable source-build path is to clone the repository on that Mac and run `npm run install:macos`; it will build the correct native architecture there.
 

@@ -34,15 +34,20 @@ esac
 
 ZIP_NAME="CodexUsageStatus-${VERSION}-macos-${BUILD_ARCH}.zip"
 ZIP_PATH="$DIST_DIR/$ZIP_NAME"
+DMG_NAME="CodexUsageStatus-${VERSION}-macos-${BUILD_ARCH}.dmg"
+DMG_PATH="$DIST_DIR/$DMG_NAME"
 
 "$ROOT_DIR/scripts/build-macos-app.sh" >/dev/null
 
 rm -f "$DIST_DIR"/CodexUsageStatus-"$VERSION"-macos-*.zip "$DIST_DIR/SHA256SUMS.txt"
 ditto -c -k --sequesterRsrc --keepParent "$APP_DIR" "$ZIP_PATH"
 
+BUILD_ARCH="$BUILD_ARCH" VERSION="$VERSION" "$ROOT_DIR/scripts/package-dmg.sh" >/dev/null
+
 (
   cd "$DIST_DIR"
-  openssl dgst -sha256 -r "$ZIP_NAME" > SHA256SUMS.txt
+  openssl dgst -sha256 -r "$ZIP_NAME" "$DMG_NAME" > SHA256SUMS.txt
 )
 
 echo "$ZIP_PATH"
+echo "$DMG_PATH"
