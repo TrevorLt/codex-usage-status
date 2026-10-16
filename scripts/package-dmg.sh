@@ -9,7 +9,6 @@ BUILD_ARCH="${BUILD_ARCH:-$(uname -m)}"
 DMG_NAME="CodexUsageStatus-${VERSION}-macos-${BUILD_ARCH}.dmg"
 DMG_PATH="$DIST_DIR/$DMG_NAME"
 RW_DMG="$DIST_DIR/.CodexUsageStatus-${VERSION}-${BUILD_ARCH}-rw.dmg"
-BACKGROUND="$ROOT_DIR/branding/dmg-background.png"
 
 if [[ ! -d "$APP_DIR" ]]; then
   echo "Missing app bundle at $APP_DIR; build the app before creating a DMG." >&2
@@ -51,13 +50,34 @@ swiftc -swift-version 6 \
   -o "$HELPER_DIR/create-dmg-background"
 
 "$HELPER_DIR/create-dmg-background" \
-  --output "$BACKGROUND" \
+  --output "$HELPER_DIR/dmg-background-1x.png" \
+  --scale 1 \
   --icon "$ROOT_DIR/branding/validation/app-icon-256.png"
+"$HELPER_DIR/create-dmg-background" \
+  --output "$HELPER_DIR/dmg-background-2x.png" \
+  --scale 2 \
+  --icon "$ROOT_DIR/branding/validation/app-icon-256.png"
+
+# Finder treats the background as a point-sized image. Combine 1x and 2x
+# TIFF representations so Retina displays get sharp artwork without doubling
+# the logical layout or moving the app and Applications icons.
+cp "$HELPER_DIR/dmg-background-1x.png" "$ROOT_DIR/branding/dmg-background.png"
+sips -s format tiff -s dpiWidth 72 -s dpiHeight 72 \
+  "$HELPER_DIR/dmg-background-1x.png" \
+  --out "$HELPER_DIR/dmg-background-1x.tiff" >/dev/null
+sips -s format tiff -s dpiWidth 144 -s dpiHeight 144 \
+  "$HELPER_DIR/dmg-background-2x.png" \
+  --out "$HELPER_DIR/dmg-background-2x.tiff" >/dev/null
+tiffutil -cathidpicheck \
+  "$HELPER_DIR/dmg-background-1x.tiff" \
+  "$HELPER_DIR/dmg-background-2x.tiff" \
+  -out "$HELPER_DIR/dmg-background.tiff" >/dev/null
+BACKGROUND="$HELPER_DIR/dmg-background.tiff"
 
 mkdir -p "$STAGING_DIR/.background"
 ditto "$APP_DIR" "$STAGING_DIR/Codex Usage Status.app"
 ln -s /Applications "$STAGING_DIR/Applications"
-cp "$BACKGROUND" "$STAGING_DIR/.background/dmg-background.png"
+cp "$BACKGROUND" "$STAGING_DIR/.background/dmg-background.tiff"
 
 rm -f "$RW_DMG" "$DMG_PATH"
 hdiutil create \
@@ -78,9 +98,12 @@ if [[ -z "$DEVICE" || -z "$MOUNT_POINT" ]]; then
   exit 1
 fi
 
+BACKGROUND_PATH="$MOUNT_POINT/.background/dmg-background.tiff"
+
 osascript <<APPLESCRIPT
 tell application "Finder"
-    tell disk "Codex Usage Status"
+    set targetDisk to disk (POSIX file "$MOUNT_POINT")
+    tell targetDisk
         open
         delay 1
         set theWindow to container window
@@ -92,7 +115,7 @@ tell application "Finder"
         set icon size of viewOptions to 96
         set text size of viewOptions to 13
         set arrangement of viewOptions to not arranged
-        set background picture of viewOptions to file ".background:dmg-background.png"
+        set background picture of viewOptions to POSIX file "$BACKGROUND_PATH"
         set position of item "Codex Usage Status.app" to {270, 335}
         set extension hidden of item "Codex Usage Status.app" to true
         set position of item "Applications" to {690, 335}
