@@ -10,8 +10,10 @@ The app is intentionally split into two pieces:
 The production app does not need Node at runtime. It directly spawns:
 
 ```sh
-/Applications/Codex.app/Contents/Resources/codex app-server --listen stdio://
+<resolved Codex executable> app-server --listen stdio://
 ```
+
+The resolver checks an explicit non-empty `CODEX_BIN` first, then common `Codex.app` and `ChatGPT.app` layouts in `/Applications` and `~/Applications`, including the current embedded `codex-cli` shim and nested `CodexCLI.app` executable.
 
 Then it sends the official JSON-RPC method:
 
@@ -49,7 +51,7 @@ Refresh is intentionally conservative:
 
 ## Known limitations
 
-- The app assumes Codex is installed at `/Applications/Codex.app` unless `CODEX_BIN` is set.
+- Custom installations outside the known application layouts require `CODEX_BIN` in a developer/source launch.
 - Public release builds should be Developer ID signed and notarized.
 - The menu-bar companion cannot draw inside the official Codex desktop window. That requires an upstream Codex desktop change.
 - The repository's app bundle includes the 1B-M `CodexUsageStatus.icns` icon; the menu-bar badge itself remains a separate native template image.

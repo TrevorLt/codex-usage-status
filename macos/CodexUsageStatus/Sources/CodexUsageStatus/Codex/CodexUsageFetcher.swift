@@ -14,9 +14,9 @@ enum CodexUsageFetcher {
     }
 
     private static func readRateLimits() throws -> RateLimitsResponse {
-        let codexPath = ProcessInfo.processInfo.environment["CODEX_BIN"] ?? AppConfig.defaultCodexPath
-        guard FileManager.default.isExecutableFile(atPath: codexPath) else {
-            throw FetchError.codexNotFound(codexPath)
+        let candidates = CodexPathResolver.candidatePaths()
+        guard let codexPath = CodexPathResolver.firstExecutablePath(in: candidates) else {
+            throw FetchError.codexNotFound(candidates)
         }
 
         let process = Process()
@@ -31,12 +31,13 @@ enum CodexUsageFetcher {
         process.standardOutput = standardOutput
         process.standardError = standardError
 
+        let responseBox = ResponseBox()
         let finished = DispatchSemaphore(value: 0)
-        process.terminationHandler = { _ in
+        process.terminationHandler = { process in
+            responseBox.markTerminated(process.terminationStatus)
             finished.signal()
         }
 
-        let responseBox = ResponseBox()
         standardOutput.fileHandleForReading.readabilityHandler = { handle in
             responseBox.append(handle.availableData)
         }
@@ -45,7 +46,7 @@ enum CodexUsageFetcher {
             try process.run()
         } catch {
             standardOutput.fileHandleForReading.readabilityHandler = nil
-            throw error
+            throw FetchError.appServerLaunchFailed
         }
 
         let requestLines = [
@@ -64,14 +65,20 @@ enum CodexUsageFetcher {
         }
 
         standardOutput.fileHandleForReading.readabilityHandler = nil
+        if !process.isRunning {
+            responseBox.append(standardOutput.fileHandleForReading.readDataToEndOfFile())
+        }
         standardInput.fileHandleForWriting.closeFile()
         terminateProcess(process, finished: finished)
-        _ = standardError.fileHandleForReading.readDataToEndOfFile()
+        let standardErrorData = standardError.fileHandleForReading.readDataToEndOfFile()
 
         switch responseBox.result() {
         case .success(let response):
             return response
         case .failure(let error):
+            if case .appServerExited(let status, _) = error as? FetchError {
+                throw FetchError.appServerExited(status, safeProcessErrorDescription(standardErrorData))
+            }
             throw error
         case .none:
             throw FetchError.missingRateLimitResponse
@@ -88,6 +95,25 @@ enum CodexUsageFetcher {
             _ = finished.wait(timeout: .now() + 1)
         }
     }
+
+    private static func safeProcessErrorDescription(_ data: Data) -> String? {
+        guard let message = String(data: data, encoding: .utf8), !message.isEmpty else {
+            return nil
+        }
+
+        let normalized = message.lowercased()
+        if normalized.contains("not signed") || normalized.contains("sign in") ||
+            normalized.contains("unauthorized") || normalized.contains("authentication") {
+            return "Codex is not signed in. Open Codex and sign in, then refresh."
+        }
+
+        if normalized.contains("permission") || normalized.contains("operation not permitted") ||
+            normalized.contains("could not initialize") || normalized.contains("failed to initialize") {
+            return "Codex could not initialize its local runtime. Open Codex once, then refresh."
+        }
+
+        return nil
+    }
 }
 
 final class ResponseBox: @unchecked Sendable {
@@ -95,6 +121,7 @@ final class ResponseBox: @unchecked Sendable {
     private let semaphore = DispatchSemaphore(value: 0)
     private var buffer = ""
     private var storedResult: Result<RateLimitsResponse, Error>?
+    private var terminationStatus: Int32?
 
     func append(_ data: Data) {
         guard !data.isEmpty, let text = String(data: data, encoding: .utf8) else {
@@ -134,7 +161,21 @@ final class ResponseBox: @unchecked Sendable {
     func result() -> Result<RateLimitsResponse, Error>? {
         lock.lock()
         defer { lock.unlock() }
+        if let storedResult {
+            return storedResult
+        }
+        if let terminationStatus {
+            return .failure(FetchError.appServerExited(Int(terminationStatus), nil))
+        }
         return storedResult
+    }
+
+    func markTerminated(_ status: Int32) {
+        lock.lock()
+        defer { lock.unlock() }
+
+        terminationStatus = status
+        semaphore.signal()
     }
 
     private static func parseRateLimitsLine(_ line: String) throws -> RateLimitsResponse? {
@@ -147,8 +188,8 @@ final class ResponseBox: @unchecked Sendable {
             return nil
         }
 
-        if object["error"] != nil {
-            throw FetchError.appServerError
+        if let errorObject = object["error"] as? [String: Any] {
+            throw FetchError.appServerError(safeServerErrorDescription(errorObject))
         }
 
         guard let result = object["result"] else {
@@ -159,6 +200,25 @@ final class ResponseBox: @unchecked Sendable {
         return try JSONDecoder().decode(RateLimitsResponse.self, from: resultData)
     }
 
+    private static func safeServerErrorDescription(_ errorObject: [String: Any]) -> String? {
+        guard let message = errorObject["message"] as? String else {
+            return nil
+        }
+
+        let normalized = message.lowercased()
+        if normalized.contains("login") || normalized.contains("sign in") ||
+            normalized.contains("signed in") || normalized.contains("unauthorized") ||
+            normalized.contains("authentication") {
+            return "Codex is not signed in. Open Codex and sign in, then refresh."
+        }
+
+        if normalized.contains("method") && (normalized.contains("not found") || normalized.contains("unknown")) {
+            return "This Codex version does not support the usage API yet. Update Codex and try again."
+        }
+
+        return nil
+    }
+
     private static func stringID(_ value: Any?) -> String? {
         if let string = value as? String { return string }
         if let number = value as? NSNumber { return number.stringValue }
@@ -167,27 +227,31 @@ final class ResponseBox: @unchecked Sendable {
 }
 
 enum FetchError: LocalizedError {
-    case codexNotFound(String)
+    case codexNotFound([String])
+    case appServerLaunchFailed
     case timeout
-    case appServerExited(Int)
-    case appServerError
+    case appServerExited(Int, String?)
+    case appServerError(String?)
     case invalidOutput
     case missingRateLimitResponse
 
     var errorDescription: String? {
         switch self {
-        case .codexNotFound(let path):
-            return "Codex binary not found at \(path)"
+        case .codexNotFound(let candidates):
+            let checkedPaths = candidates.isEmpty ? "no known locations" : candidates.joined(separator: ", ")
+            return "Codex app-server executable was not found. Checked: \(checkedPaths). Open Codex once or set CODEX_BIN for a custom install."
+        case .appServerLaunchFailed:
+            return "Codex app-server could not be launched. Check the Codex installation and try again."
         case .timeout:
-            return "Codex app-server did not respond within 20 seconds"
-        case .appServerExited(let status):
-            return "Codex app-server exited with status \(status)"
-        case .appServerError:
-            return "Codex app-server returned an error"
+            return "Codex app-server did not respond within 20 seconds. Open Codex and check that it is signed in and online."
+        case .appServerExited(let status, let detail):
+            return detail ?? "Codex app-server exited before returning usage data (status \(status)). Update or open Codex, then refresh."
+        case .appServerError(let detail):
+            return detail ?? "Codex app-server returned an error. Open Codex, confirm you are signed in, and refresh."
         case .invalidOutput:
-            return "Codex app-server returned unexpected usage data"
+            return "Codex app-server returned an unsupported usage response. Update Codex and try again."
         case .missingRateLimitResponse:
-            return "Codex app-server did not return usage data"
+            return "Codex app-server did not return usage data. Confirm Codex is signed in and up to date."
         }
     }
 }

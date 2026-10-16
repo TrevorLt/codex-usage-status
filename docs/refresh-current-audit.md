@@ -3,6 +3,7 @@
 审计时间：2026-10-15（CDT）
 源码基线：`a06d3aa2421040f7a41bb8e024d27b5f54c7abe4`（分支 `local-30s-refresh`）
 性质：只读源码审计 + `/private/tmp` 最小 Swift harness；未改源码、测试、安装包、LaunchAgent 或正在运行的进程。
+状态：历史审计；其中 app-server 提前退出与 Codex 路径发现问题在后续 v0.1.2 修复工作中重新验证，不能把本文的 pre-fix 结论当作当前行为。
 
 ## 1. 结论先行
 
