@@ -23,7 +23,9 @@ Codex itself owns authentication and calls its own backend. This project receive
 
 ## Refresh policy
 
-The default menu-bar refresh interval is 120 seconds, with a 60-second minimum. Failed refreshes back off to 300 seconds. Keep refreshes conservative; usage status does not need sub-second polling.
+The normal adaptive menu-bar cadence is 30 seconds during startup/activity, 60 seconds after 90 seconds without a valid usage change, and 120 seconds after 5 minutes without a change. Automatic queries have a hard 30-second floor. Failed refreshes back off to 300 seconds. Keep refreshes conservative; usage status does not need sub-second polling.
+
+The last successful snapshot is retained only in process memory. It is marked stale after wake or errors, expires after 24 hours, and is not persisted to disk because the local response does not provide a safe account binding for a saved snapshot.
 
 ## If this stops working
 

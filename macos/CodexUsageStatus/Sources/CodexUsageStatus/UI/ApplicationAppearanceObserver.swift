@@ -1,11 +1,19 @@
 import AppKit
 
+// NotificationCenter permits removal from any thread. Keep the opaque token
+// behind immutable ownership so Swift 6 can safely release it during deinit.
+private final class DistributedAppearanceRegistration: @unchecked Sendable {
+    private let token: NSObjectProtocol
+    init(_ token: NSObjectProtocol) { self.token = token }
+    deinit { DistributedNotificationCenter.default.removeObserver(token) }
+}
+
 @MainActor
 final class ApplicationAppearanceObserver: NSObject {
     static let systemAppearanceChangedNotification = Notification.Name("AppleInterfaceThemeChangedNotification")
 
     private var observation: NSKeyValueObservation?
-    private var distributedObserver: NSObjectProtocol?
+    private var distributedObserver: DistributedAppearanceRegistration?
     private let onChange: @MainActor () -> Void
 
     init(onChange: @escaping @MainActor () -> Void) {
@@ -18,7 +26,7 @@ final class ApplicationAppearanceObserver: NSObject {
             }
         }
 
-        distributedObserver = DistributedNotificationCenter.default.addObserver(
+        distributedObserver = DistributedAppearanceRegistration(DistributedNotificationCenter.default.addObserver(
             forName: Self.systemAppearanceChangedNotification,
             object: nil,
             queue: .main
@@ -26,13 +34,10 @@ final class ApplicationAppearanceObserver: NSObject {
             Task { @MainActor [weak self] in
                 self?.onChange()
             }
-        }
+        })
     }
 
     deinit {
         observation?.invalidate()
-        if let distributedObserver {
-            DistributedNotificationCenter.default.removeObserver(distributedObserver)
-        }
     }
 }
