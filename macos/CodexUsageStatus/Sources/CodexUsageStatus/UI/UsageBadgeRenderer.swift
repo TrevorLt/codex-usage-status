@@ -13,11 +13,12 @@ enum UsageBadgeRenderer {
         }
     }
 
-    static func image(for usage: UsageSummary, style: BadgeStyle, appearance: NSAppearance) -> NSImage {
+    static func image(for usage: UsageSummary, style: BadgeStyle, appearance: NSAppearance, isStale: Bool = false, now: Date = Date(), hideReadings: Bool = false) -> NSImage {
         render(style: style,
-            left: BadgeValue(label: "5H", percent: usage.fiveHour.remainingPercent),
-            right: BadgeValue(label: "7D", percent: usage.weekly.remainingPercent),
-            appearance: appearance
+            left: BadgeValue(label: "5H", percent: hideReadings || usage.fiveHour.isExpired(at: now) ? nil : usage.fiveHour.remainingPercent),
+            right: BadgeValue(label: "7D", percent: hideReadings || usage.weekly.isExpired(at: now) ? nil : usage.weekly.remainingPercent),
+            appearance: appearance,
+            isStale: isStale
         )
     }
 
@@ -43,15 +44,16 @@ enum UsageBadgeRenderer {
         left: BadgeValue,
         right: BadgeValue,
         appearance: NSAppearance,
-        forcedColor: NSColor? = nil
+        forcedColor: NSColor? = nil,
+        isStale: Bool = false
     ) -> NSImage {
         let usesTemplateTint = forcedColor == nil && !containsWarning(left: left, right: right)
 
         switch style {
         case .doubleRing:
-            return renderDoubleRing(left: left, right: right, appearance: appearance, forcedColor: forcedColor, usesTemplateTint: usesTemplateTint)
+            return renderDoubleRing(left: left, right: right, appearance: appearance, forcedColor: forcedColor, usesTemplateTint: usesTemplateTint, isStale: isStale)
         case .largeReadout:
-            return renderLargeReadout(left: left, right: right, appearance: appearance, forcedColor: forcedColor, usesTemplateTint: usesTemplateTint)
+            return renderLargeReadout(left: left, right: right, appearance: appearance, forcedColor: forcedColor, usesTemplateTint: usesTemplateTint, isStale: isStale)
         }
     }
 
@@ -64,7 +66,8 @@ enum UsageBadgeRenderer {
         right: BadgeValue,
         appearance: NSAppearance,
         forcedColor: NSColor?,
-        usesTemplateTint: Bool
+        usesTemplateTint: Bool,
+        isStale: Bool
     ) -> NSImage {
         let imageSize = doubleRingImageSize
         let image = NSImage(size: imageSize)
@@ -77,10 +80,7 @@ enum UsageBadgeRenderer {
             NSColor.clear.setFill()
             rect.fill()
 
-            let divider = NSBezierPath()
-            divider.appendArc(withCenter: NSPoint(x: 43, y: 12), radius: 1.0, startAngle: 0, endAngle: 360)
-            foregroundColor.withAlphaComponent(0.22).setFill()
-            divider.fill()
+            drawDivider(isStale: isStale, foregroundColor: foregroundColor)
 
             drawLabeledRing(value: left, labelRect: NSRect(x: 1, y: 4.0, width: 11, height: 16), ringCenter: NSPoint(x: 29, y: 12), foregroundColor: foregroundColor, forcedColor: forcedColor)
             drawLabeledRing(value: right, labelRect: NSRect(x: 50, y: 4.0, width: 11, height: 16), ringCenter: NSPoint(x: 75, y: 12), foregroundColor: foregroundColor, forcedColor: forcedColor)
@@ -95,7 +95,8 @@ enum UsageBadgeRenderer {
         right: BadgeValue,
         appearance: NSAppearance,
         forcedColor: NSColor?,
-        usesTemplateTint: Bool
+        usesTemplateTint: Bool,
+        isStale: Bool
     ) -> NSImage {
         let imageSize = largeReadoutImageSize
         let image = NSImage(size: imageSize)
@@ -108,10 +109,7 @@ enum UsageBadgeRenderer {
             NSColor.clear.setFill()
             rect.fill()
 
-            let divider = NSBezierPath()
-            divider.appendArc(withCenter: NSPoint(x: 43, y: 12), radius: 1.0, startAngle: 0, endAngle: 360)
-            foregroundColor.withAlphaComponent(0.28).setFill()
-            divider.fill()
+            drawDivider(isStale: isStale, foregroundColor: foregroundColor)
 
             drawReadoutGroup(value: left, labelRect: NSRect(x: 1, y: 4.0, width: 11, height: 16), numberRect: NSRect(x: 15, y: 3.4, width: 25, height: 17), lineRect: NSRect(x: 1, y: 2.4, width: 36, height: 1.5), foregroundColor: foregroundColor, forcedColor: forcedColor)
             drawReadoutGroup(value: right, labelRect: NSRect(x: 49, y: 4.0, width: 11, height: 16), numberRect: NSRect(x: 61, y: 3.4, width: 25, height: 17), lineRect: NSRect(x: 48, y: 2.4, width: 36, height: 1.5), foregroundColor: foregroundColor, forcedColor: forcedColor)
@@ -119,6 +117,17 @@ enum UsageBadgeRenderer {
 
         image.isTemplate = usesTemplateTint
         return image
+    }
+
+    private static func drawDivider(isStale: Bool, foregroundColor: NSColor) {
+        if isStale {
+            drawString("~", in: NSRect(x: 39, y: 6, width: 8, height: 12), fontSize: 10, weight: .semibold, alpha: 0.65, alignment: .center, foregroundColor: foregroundColor)
+        } else {
+            let divider = NSBezierPath()
+            divider.appendArc(withCenter: NSPoint(x: 43, y: 12), radius: 1, startAngle: 0, endAngle: 360)
+            foregroundColor.withAlphaComponent(0.25).setFill()
+            divider.fill()
+        }
     }
 
     private static func drawLabeledRing(

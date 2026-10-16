@@ -1,0 +1,113 @@
+{
+  "generatedAt": "2026-10-16T03:23:03.980Z",
+  "reference": "branding/reference/1b-m.png",
+  "before": "branding/reference/1b-m-before.png",
+  "comparisonSize": [
+    256,
+    256
+  ],
+  "luminanceThreshold": 128,
+  "sourceSizeSilhouette": {
+    "size": [
+      1254,
+      1254
+    ],
+    "luminanceThreshold": 128,
+    "binarySilhouetteIoU": 1,
+    "differentMaskPixels": 0,
+    "referenceForegroundPixels": 312645,
+    "candidateForegroundPixels": 312645
+  },
+  "fixed": {
+    "binarySilhouetteIoU": 0.9976821447886889,
+    "binarySilhouetteDifferenceOverUnion": 0.0023178552113111333,
+    "grayscaleMeanAbsoluteError": 0.007998896580116422,
+    "referenceForegroundPixels": 12940,
+    "candidateForegroundPixels": 12916,
+    "connectedComponents": [
+      {
+        "pixels": 5062,
+        "bounds": [
+          36,
+          35,
+          140,
+          217
+        ]
+      },
+      {
+        "pixels": 4127,
+        "bounds": [
+          68,
+          67,
+          185,
+          185
+        ]
+      },
+      {
+        "pixels": 2572,
+        "bounds": [
+          140,
+          113,
+          219,
+          215
+        ]
+      },
+      {
+        "pixels": 1155,
+        "bounds": [
+          156,
+          45,
+          206,
+          99
+        ]
+      }
+    ]
+  },
+  "beforeMetrics": {
+    "binarySilhouetteIoU": 0.22253268136912482,
+    "binarySilhouetteDifferenceOverUnion": 0.7774673186308751,
+    "grayscaleMeanAbsoluteError": 0.3550945207184436,
+    "referenceForegroundPixels": 12940,
+    "candidateForegroundPixels": 23813,
+    "connectedComponents": [
+      {
+        "pixels": 11694,
+        "bounds": [
+          17,
+          23,
+          238,
+          238
+        ]
+      },
+      {
+        "pixels": 9123,
+        "bounds": [
+          50,
+          54,
+          205,
+          205
+        ]
+      },
+      {
+        "pixels": 2996,
+        "bounds": [
+          22,
+          21,
+          114,
+          108
+        ]
+      }
+    ]
+  },
+  "improvement": {
+    "absoluteIoUGain": 0.775149463419564,
+    "relativeGrayscaleMaeReduction": 0.9774738946578712
+  },
+  "checks": {
+    "sharpRenderedAllVariants": true,
+    "explicitPathsOnly": true,
+    "identicalGeometryAcrossFourVariants": true,
+    "matchingTransparentAlphaAcrossTemplateDarkLight": true,
+    "pathCountPerVariant": 1
+  }
+}

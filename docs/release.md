@@ -52,6 +52,8 @@ For a release ZIP:
 3. Open the app.
 4. Optional: add it to macOS System Settings > General > Login Items.
 
+The package contains the `CodexUsageStatus.icns` app icon. The menu-bar badge is still rendered separately as a native template image so it can follow macOS status-bar contrast and show the 5H/7D readings.
+
 For source:
 
 ```sh

@@ -6,6 +6,8 @@ Use this checklist before publishing a GitHub release.
 
 ```sh
 npm test
+bash scripts/test-wake-recovery.sh
+node branding/verify-logo.mjs
 BUILD_ARCH=arm64 npm run build:macos
 BUILD_ARCH=x86_64 npm run build:macos
 npm run package:macos:all
@@ -16,6 +18,8 @@ Confirm the generated app architecture:
 ```sh
 lipo -archs dist/CodexUsageStatus.app/Contents/MacOS/CodexUsageStatus
 codesign --verify --deep --strict --verbose=2 dist/CodexUsageStatus.app
+plutil -extract CFBundleIconFile raw -o - dist/CodexUsageStatus.app/Contents/Info.plist
+test -f dist/CodexUsageStatus.app/Contents/Resources/CodexUsageStatus.icns
 ```
 
 Run a live local data-source check on a signed-in Codex desktop installation:
@@ -30,6 +34,7 @@ dist/CodexUsageStatus.app/Contents/MacOS/CodexUsageStatus --once
 - Confirm no code reads `~/.codex/auth.json`.
 - Confirm no code reads browser cookies, browser storage, screenshots, OCR output, or account tokens.
 - Confirm refresh intervals remain conservative.
+- Confirm the 1B-M app icon is present in `Contents/Resources` and declared in `Info.plist`.
 - Confirm the app only calls `account/rateLimits/read` through the local Codex app-server.
 
 ## Public release quality

@@ -7,6 +7,8 @@ DIST_DIR="$ROOT_DIR/dist"
 APP_DIR="$DIST_DIR/CodexUsageStatus.app"
 CONTENTS_DIR="$APP_DIR/Contents"
 MACOS_DIR="$CONTENTS_DIR/MacOS"
+RESOURCES_DIR="$CONTENTS_DIR/Resources"
+ICON_SOURCE="$ROOT_DIR/branding/CodexUsageStatus.icns"
 VERSION="${VERSION:-0.1.0}"
 CODESIGN_IDENTITY="${CODESIGN_IDENTITY:--}"
 MACOSX_DEPLOYMENT_TARGET="${MACOSX_DEPLOYMENT_TARGET:-13.0}"
@@ -37,25 +39,42 @@ case "$BUILD_ARCH" in
 esac
 
 TRIPLE="${BUILD_ARCH}-apple-macosx${MACOSX_DEPLOYMENT_TARGET}"
-BUILD_ARGS=(
-  --package-path "$SWIFT_DIR"
-  -c release
-  --triple "$TRIPLE"
+SDK_PATH="$(xcrun --show-sdk-path)"
+BINARY_PATH="$MACOS_DIR/CodexUsageStatus"
+
+# The production target has no Swift package dependencies. Compile its source
+# directly so local and release builds do not depend on SwiftPM's manifest
+# linker/cache state (the package manifest remains available for XCTest).
+SWIFT_SOURCES=(
+  "$SWIFT_DIR/Sources/CodexUsageStatus/App/"*.swift
+  "$SWIFT_DIR/Sources/CodexUsageStatus/Codex/"*.swift
+  "$SWIFT_DIR/Sources/CodexUsageStatus/Domain/"*.swift
+  "$SWIFT_DIR/Sources/CodexUsageStatus/UI/"*.swift
+  "$SWIFT_DIR/Sources/CodexUsageStatus/main.swift"
 )
 
-swift build "${BUILD_ARGS[@]}"
-BINARY_DIR="$(swift build "${BUILD_ARGS[@]}" --show-bin-path)"
-BINARY_PATH="$BINARY_DIR/CodexUsageStatus"
+if [[ ! -f "$ICON_SOURCE" ]]; then
+  echo "Missing app icon at $ICON_SOURCE" >&2
+  exit 1
+fi
+
+rm -rf "$APP_DIR"
+mkdir -p "$MACOS_DIR"
+swiftc -swift-version 6 -O \
+  -sdk "$SDK_PATH" \
+  -target "$TRIPLE" \
+  -module-cache-path "$DIST_DIR/module-cache-$BUILD_ARCH" \
+  "${SWIFT_SOURCES[@]}" \
+  -o "$BINARY_PATH"
 
 if [[ ! -x "$BINARY_PATH" ]]; then
   echo "Build succeeded, but expected binary was not found at $BINARY_PATH" >&2
   exit 1
 fi
 
-rm -rf "$APP_DIR"
-mkdir -p "$MACOS_DIR"
+mkdir -p "$MACOS_DIR" "$RESOURCES_DIR"
 
-cp "$BINARY_PATH" "$MACOS_DIR/CodexUsageStatus"
+cp "$ICON_SOURCE" "$RESOURCES_DIR/CodexUsageStatus.icns"
 
 cat > "$CONTENTS_DIR/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
@@ -68,6 +87,8 @@ cat > "$CONTENTS_DIR/Info.plist" <<'PLIST'
   <string>dev.local.CodexUsageStatus</string>
   <key>CFBundleName</key>
   <string>Codex Usage Status</string>
+  <key>CFBundleIconFile</key>
+  <string>CodexUsageStatus.icns</string>
   <key>CFBundlePackageType</key>
   <string>APPL</string>
   <key>CFBundleShortVersionString</key>

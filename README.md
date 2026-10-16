@@ -20,20 +20,37 @@ The normal badge uses macOS's native menu-bar template tinting. This lets the ic
 
 The menu-bar badge is the primary interface. Clicking it exposes only the necessary actions: Refresh, Display Style, Settings, and Quit.
 
+The repository also ships the selected 1B-M app icon in the bundle. It is intentionally separate from the live menu-bar badge: the app icon is a stable brand mark, while the menu-bar image remains a native template image that follows macOS status-bar contrast and carries the live 5H/7D readings. See [branding/README.md](branding/README.md) for the measured SVG source and icon validation.
+
 Double Ring is the default display style. A larger accessibility-oriented style is available from Display Style > Large Readout. Large Readout keeps both values visible while prioritizing larger readable numbers with weak `5H` / `7D` labels and thin status lines.
 
 ## Adaptive refresh
 
 The app uses a conservative adaptive schedule so active usage is detected quickly without polling continuously:
 
-- normal baseline: refresh every 120 seconds
-- significant change: when either window drops by at least 5 percentage points, refresh again after 30 seconds
-- active-change window: stay at the 30-second cadence while the significant drop is within the last 60 seconds
-- stable backoff: after stability returns, back off to 120 seconds, then 240 seconds, and finally 300 seconds
+- startup and activity: refresh every 30 seconds; any valid raw usage change or detected window cycle rebuilds the activity baseline
+- quiet for 90 seconds: refresh every 60 seconds
+- quiet for 5 minutes: refresh every 120 seconds; normal adaptive polling stops backing off here
 - failed request: retry after 300 seconds
 - manual refresh: always available from the menu
 
-The current build never schedules automatic refreshes more frequently than every 30 seconds. `CODEX_USAGE_REFRESH_SECONDS` can change the normal baseline, but cannot lower that 30-second floor.
+Automatic queries are spaced at least 30 seconds apart. A finite `CODEX_USAGE_REFRESH_SECONDS` value explicitly selects a fixed success cadence instead of adaptive polling, with a 30-second minimum. Failed requests still retry after 300 seconds. Timer tolerance and request duration mean these intervals are not exact end-to-end update guarantees.
+
+## Sleep, wake, and last-known readings
+
+The app keeps the last successful snapshot in memory. A temporary refresh failure no longer replaces valid numbers with an error-only badge: a neutral `~` separator marks last-known readings, and the tooltip shows the last successful read and latest error. Successful reads replace the snapshot and clear the error.
+
+On device wake or display wake, the app redraws immediately and schedules a coalesced refresh, respecting the automatic minimum interval. Network recovery can advance a later retry. Sleep-era responses are discarded, and multiple wake/display events do not create parallel requests. While sleeping, query and display-expiry timers are stopped.
+
+Each window becomes unknown at its own known reset deadline; a local one-shot redraw hides it without an extra quota query. Last-known data has a 24-hour display-retention ceiling and is always labelled stale after wake or failure. This ceiling is not a freshness guarantee. Restarting the process clears the in-memory snapshot: disk quota caching is deliberately not enabled because the rate-limit response does not identify which account a saved snapshot belongs to.
+
+The reproducible UI integration check uses fake responses and process-local workspace notifications, without putting the Mac to sleep or accessing an account:
+
+```sh
+bash scripts/test-wake-recovery.sh
+```
+
+See [wake/cache analysis](docs/wake-cache-strategy.md) for persistence tradeoffs and verification limits.
 
 ## Safety model
 
@@ -56,7 +73,7 @@ See [PRIVACY.md](PRIVACY.md) for the user-facing privacy summary and [SECURITY.m
 3. Move `CodexUsageStatus.app` to `/Applications`.
 4. Open `CodexUsageStatus.app`.
 
-The app is menu-bar-only, so it does not appear in the Dock. To launch it automatically after login, add `CodexUsageStatus.app` in macOS System Settings > General > Login Items.
+The app is menu-bar-only, so it does not appear in the Dock. The bundle includes the 1B-M `CodexUsageStatus.icns` app icon. To launch it automatically after login, add `CodexUsageStatus.app` in macOS System Settings > General > Login Items, or manage it with a per-user LaunchAgent if you are maintaining a developer installation.
 
 Unsigned GitHub builds may trigger macOS Gatekeeper warnings. For a public polished release, sign with an Apple Developer ID and notarize the app.
 
@@ -77,9 +94,13 @@ For source builds:
 
 ```sh
 npm test
+bash scripts/test-wake-recovery.sh
+node branding/verify-logo.mjs
 npm run build:macos
 npm run start:macos
 ```
+
+The build embeds the tracked `branding/CodexUsageStatus.icns` file in `Contents/Resources` and declares it in the generated `Info.plist`. The wake/recovery integration check uses fake responses and never reads an account. The logo verification renders the four source variants and checks their measured geometry.
 
 The build script defaults to the Mac's hardware architecture. On Apple Silicon this creates an `arm64` app, even if Node.js is running under Rosetta. To build a specific architecture:
 
@@ -101,7 +122,7 @@ To change the menu-bar display, click the badge and choose Display Style:
 - Double Ring: compact default with side labels and circular quota indicators.
 - Large Readout: larger numbers with subtle status lines for easier reading.
 
-To override the normal baseline interval while keeping the 30-second minimum:
+To select an explicit fixed success interval while keeping the 30-second minimum:
 
 ```sh
 CODEX_USAGE_REFRESH_SECONDS=180 npm run start:macos
@@ -137,6 +158,8 @@ Release ZIPs are architecture-specific:
 
 - `CodexUsageStatus-<version>-macos-arm64.zip` for Apple Silicon Macs.
 - `CodexUsageStatus-<version>-macos-x86_64.zip` for Intel Macs.
+
+Each release ZIP contains the same 1B-M app icon; only the executable architecture differs.
 
 For another MacBook, the most reliable source-build path is to clone the repository on that Mac and run `npm run install:macos`; it will build the correct native architecture there.
 

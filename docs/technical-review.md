@@ -37,10 +37,13 @@ The optional Large Readout style is designed for readability. It uses larger mon
 
 Refresh is intentionally conservative:
 
-- automatic refresh every 120 seconds by default
-- 60-second minimum if overridden with `CODEX_USAGE_REFRESH_SECONDS`
+- automatic refresh every 30 seconds during startup/activity, then 60 seconds after 90 seconds of stability and 120 seconds after 5 minutes of stability
+- 30-second minimum between automatic queries
+- a finite `CODEX_USAGE_REFRESH_SECONDS` value opts into a fixed success cadence, with the same 30-second floor
 - failed refreshes back off to 300 seconds
 - no overlapping refreshes
+- wake and network recovery coalesce into one recovery refresh
+- last-known values remain visible as stale in memory while a new read is attempted; no disk usage cache is used
 - manual refresh from the menu
 - 20-second timeout per app-server request
 
@@ -49,10 +52,11 @@ Refresh is intentionally conservative:
 - The app assumes Codex is installed at `/Applications/Codex.app` unless `CODEX_BIN` is set.
 - Public release builds should be Developer ID signed and notarized.
 - The menu-bar companion cannot draw inside the official Codex desktop window. That requires an upstream Codex desktop change.
+- The repository's app bundle includes the 1B-M `CodexUsageStatus.icns` icon; the menu-bar badge itself remains a separate native template image.
 
 ## Good next issues
 
 - User preference for badge color thresholds or icon-only fallback.
-- Optional LaunchAgent helper for start-at-login.
+- Keep the documented per-user LaunchAgent/Login Items setup aligned with the installed app.
 - Notarized release pipeline.
 - Better error menu with a copyable diagnostic summary that still redacts secrets.
