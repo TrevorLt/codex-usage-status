@@ -3,7 +3,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DIST_DIR="$ROOT_DIR/dist"
-APP_DIR="$DIST_DIR/CodexUsageStatus.app"
+APP_DIR="$DIST_DIR/Codex Usage Status.app"
 VERSION="${VERSION:-0.1.2}"
 
 detect_hardware_arch() {

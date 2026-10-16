@@ -13,6 +13,7 @@ This release improves first-run compatibility and makes failed refreshes diagnos
 - Keeps the existing local-only, read-only app-server safety boundary and neutral template menu-bar display.
 - Keeps the existing adaptive refresh, sleep/wake recovery, last-good stale display, and below-20% red warning behavior.
 - Adds architecture-specific DMG installers with a Finder drag-to-Applications layout using the 1B-M app icon and the project's charcoal/lavender visual language.
+- Gives the mounted installer disk the 1B-M volume icon, uses a Retina-ready background, and presents the app as `Codex Usage Status` while retaining the internal executable name for compatibility.
 
 ## Compatibility note
 

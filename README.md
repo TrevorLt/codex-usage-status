@@ -70,12 +70,12 @@ See [PRIVACY.md](PRIVACY.md) for the user-facing privacy summary and [SECURITY.m
    - Apple Silicon: `CodexUsageStatus-<version>-macos-arm64.zip`
    - Intel: `CodexUsageStatus-<version>-macos-x86_64.zip`
 2. Unzip it.
-3. Move `CodexUsageStatus.app` to `/Applications`.
-4. Open `CodexUsageStatus.app`.
+3. Move `Codex Usage Status.app` to `/Applications`.
+4. Open `Codex Usage Status.app`.
 
-You can also download the matching DMG for a standard macOS drag-to-install experience. Open the DMG and drag `CodexUsageStatus.app` onto the `Applications` shortcut. The DMG uses the same 1B-M app icon and a lightweight charcoal/lavender installation layout; it does not install background helpers or change unrelated system settings.
+You can also download the matching DMG for a standard macOS drag-to-install experience. Open the DMG and drag `Codex Usage Status` onto the `Applications` shortcut. The mounted disk uses the same 1B-M logo, and the installer uses a Retina-ready lightweight charcoal/lavender layout; it does not install background helpers or change unrelated system settings.
 
-The app is menu-bar-only, so it does not appear in the Dock. The bundle includes the 1B-M `CodexUsageStatus.icns` app icon. To launch it automatically after login, add `CodexUsageStatus.app` in macOS System Settings > General > Login Items, or manage it with a per-user LaunchAgent if you are maintaining a developer installation.
+The app is menu-bar-only, so it does not appear in the Dock. The bundle includes the 1B-M `CodexUsageStatus.icns` app icon, while its user-facing name is `Codex Usage Status`. To launch it automatically after login, add `Codex Usage Status.app` in macOS System Settings > General > Login Items, or manage it with a per-user LaunchAgent if you are maintaining a developer installation.
 
 On its first refresh, the app automatically checks the legacy Codex layout, the current ChatGPT-bundled Codex CLI shim, the nested Codex app-server executable, and per-user `/Applications` locations. If none is executable, hover the red `?` badge or open Settings to see the checked locations and the next action.
 

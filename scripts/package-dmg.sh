@@ -3,7 +3,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DIST_DIR="$ROOT_DIR/dist"
-APP_DIR="$DIST_DIR/CodexUsageStatus.app"
+APP_DIR="$DIST_DIR/Codex Usage Status.app"
 VERSION="${VERSION:-0.1.2}"
 BUILD_ARCH="${BUILD_ARCH:-$(uname -m)}"
 DMG_NAME="CodexUsageStatus-${VERSION}-macos-${BUILD_ARCH}.dmg"
@@ -55,7 +55,7 @@ swiftc -swift-version 6 \
   --icon "$ROOT_DIR/branding/validation/app-icon-256.png"
 
 mkdir -p "$STAGING_DIR/.background"
-ditto "$APP_DIR" "$STAGING_DIR/CodexUsageStatus.app"
+ditto "$APP_DIR" "$STAGING_DIR/Codex Usage Status.app"
 ln -s /Applications "$STAGING_DIR/Applications"
 cp "$BACKGROUND" "$STAGING_DIR/.background/dmg-background.png"
 
@@ -93,7 +93,8 @@ tell application "Finder"
         set text size of viewOptions to 13
         set arrangement of viewOptions to not arranged
         set background picture of viewOptions to file ".background:dmg-background.png"
-        set position of item "CodexUsageStatus.app" to {270, 335}
+        set position of item "Codex Usage Status.app" to {270, 335}
+        set extension hidden of item "Codex Usage Status.app" to true
         set position of item "Applications" to {690, 335}
         update without registering applications
         delay 1
@@ -101,6 +102,12 @@ tell application "Finder"
     end tell
 end tell
 APPLESCRIPT
+
+# Finder can clear the volume custom-icon bit while saving the window layout.
+# Apply the icon after Finder closes so the flag survives conversion to UDZO.
+cp "$ROOT_DIR/branding/CodexUsageStatus.icns" "$MOUNT_POINT/.VolumeIcon.icns"
+SetFile -a C "$MOUNT_POINT"
+SetFile -a V "$MOUNT_POINT/.VolumeIcon.icns"
 
 hdiutil detach "$DEVICE" -quiet
 MOUNT_POINT=""

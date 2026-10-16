@@ -16,16 +16,18 @@ npm run package:macos:all
 Confirm the generated app architecture:
 
 ```sh
-lipo -archs dist/CodexUsageStatus.app/Contents/MacOS/CodexUsageStatus
-codesign --verify --deep --strict --verbose=2 dist/CodexUsageStatus.app
-plutil -extract CFBundleIconFile raw -o - dist/CodexUsageStatus.app/Contents/Info.plist
-test -f dist/CodexUsageStatus.app/Contents/Resources/CodexUsageStatus.icns
+lipo -archs "dist/Codex Usage Status.app/Contents/MacOS/CodexUsageStatus"
+codesign --verify --deep --strict --verbose=2 "dist/Codex Usage Status.app"
+plutil -extract CFBundleIconFile raw -o - "dist/Codex Usage Status.app/Contents/Info.plist"
+test -f "dist/Codex Usage Status.app/Contents/Resources/CodexUsageStatus.icns"
+test -f dist/CodexUsageStatus-0.1.2-macos-arm64.dmg
+test -f dist/CodexUsageStatus-0.1.2-macos-x86_64.dmg
 ```
 
 Run a live local data-source check on a signed-in Codex desktop installation:
 
 ```sh
-dist/CodexUsageStatus.app/Contents/MacOS/CodexUsageStatus --once
+"dist/Codex Usage Status.app/Contents/MacOS/CodexUsageStatus" --once
 ```
 
 ## Safety checks
@@ -44,6 +46,7 @@ Local builds are ad-hoc signed by default. That is fine for personal use and sou
 - Apple Developer ID signing.
 - Apple notarization.
 - Separate `arm64` and `x86_64` artifacts, or a tested universal app.
-- A SHA256 checksum file for every uploaded ZIP.
+- A SHA256 checksum file for every uploaded ZIP and DMG.
+- A verified custom `.VolumeIcon.icns` and Retina-ready DMG background.
 
 Unsigned or ad-hoc signed ZIPs may trigger Gatekeeper warnings when downloaded from GitHub.
