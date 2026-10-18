@@ -16,9 +16,11 @@ The menu-bar badge uses a compact side-labeled double-ring layout:
 - ring center number: remaining percentage
 - no capsule background, so it stays visually lightweight beside the other macOS status items
 
-The normal badge uses macOS's native menu-bar template tinting. This lets the icon follow the surrounding status-bar contrast automatically instead of forcing a fixed light/dark color. When either remaining value falls below 20%, that window turns system red as an actionable warning; normal values remain neutral.
+The badge uses macOS's native menu-bar template tinting for neutral content. This lets it follow the surrounding status-bar contrast automatically instead of forcing a fixed light/dark color. When either remaining value falls below 20%, a separate system-red overlay marks only that window's ring or readout bar, including a complete warning ring at 0%; the percentage text and other neutral content keep native tinting. This applies to both display styles.
 
-The menu-bar badge is the primary interface. Clicking it exposes only the necessary actions: Refresh, Display Style, Settings, and Quit.
+The menu-bar badge is the primary interface. Clicking it exposes only the necessary actions: Refresh, Display Style, Launch at Login, About, and Quit. Launch at Login is a checkable menu item backed by the app's per-user LaunchAgent.
+
+The repository also ships the selected 1B-M app icon in the bundle. It is intentionally separate from the live menu-bar badge: the app icon is a stable brand mark, while the menu-bar image remains a native template image that follows macOS status-bar contrast and carries the live 5H/7D readings. See [branding/README.md](branding/README.md) for the measured SVG source and icon validation.
 
 Double Ring is the default display style. A larger accessibility-oriented style is available from Display Style > Large Readout. Large Readout keeps both values visible while prioritizing larger readable numbers with weak `5H` / `7D` labels and thin status lines.
 
@@ -26,14 +28,29 @@ Double Ring is the default display style. A larger accessibility-oriented style 
 
 The app uses a conservative adaptive schedule so active usage is detected quickly without polling continuously:
 
-- normal baseline: refresh every 120 seconds
-- significant change: when either window drops by at least 5 percentage points, refresh again after 30 seconds
-- active-change window: stay at the 30-second cadence while the significant drop is within the last 60 seconds
-- stable backoff: after stability returns, back off to 120 seconds, then 240 seconds, and finally 300 seconds
+- startup and activity: refresh every 30 seconds; any valid raw usage change or detected window cycle rebuilds the activity baseline
+- quiet for 90 seconds: refresh every 60 seconds
+- quiet for 5 minutes: refresh every 120 seconds; normal adaptive polling stops backing off here
 - failed request: retry after 300 seconds
 - manual refresh: always available from the menu
 
-The current build never schedules automatic refreshes more frequently than every 30 seconds. `CODEX_USAGE_REFRESH_SECONDS` can change the normal baseline, but cannot lower that 30-second floor.
+Automatic queries are spaced at least 30 seconds apart. A finite `CODEX_USAGE_REFRESH_SECONDS` value explicitly selects a fixed success cadence instead of adaptive polling, with a 30-second minimum. Failed requests still retry after 300 seconds. Timer tolerance and request duration mean these intervals are not exact end-to-end update guarantees.
+
+## Sleep, wake, and last-known readings
+
+The app keeps the last successful snapshot in memory. A temporary refresh failure no longer replaces valid numbers with an error-only badge: a neutral `~` separator marks last-known readings, and the tooltip shows the last successful read and latest error. Successful reads replace the snapshot and clear the error.
+
+On device wake or display wake, the app redraws immediately and schedules a coalesced refresh, respecting the automatic minimum interval. Network recovery can advance a later retry. Sleep-era responses are discarded, and multiple wake/display events do not create parallel requests. While sleeping, query and display-expiry timers are stopped.
+
+Each window becomes unknown at its own known reset deadline; a local one-shot redraw hides it without an extra quota query. Last-known data has a 24-hour display-retention ceiling and is always labelled stale after wake or failure. This ceiling is not a freshness guarantee. Restarting the process clears the in-memory snapshot: disk quota caching is deliberately not enabled because the rate-limit response does not identify which account a saved snapshot belongs to.
+
+The reproducible UI integration check uses fake responses and process-local workspace notifications, without putting the Mac to sleep or accessing an account:
+
+```sh
+bash scripts/test-wake-recovery.sh
+```
+
+See [wake/cache analysis](docs/wake-cache-strategy.md) for persistence tradeoffs and verification limits.
 
 ## Safety model
 
@@ -45,7 +62,7 @@ See [PRIVACY.md](PRIVACY.md) for the user-facing privacy summary and [SECURITY.m
 
 - macOS 13 or later
 - Codex desktop installed and already signed in
-- The local Codex app-server executable must be available at `/Applications/Codex.app/Contents/Resources/codex` or supplied through `CODEX_BIN`
+- The app automatically checks the common Codex desktop layouts in `/Applications` and `~/Applications`, including `Codex.app` and `ChatGPT.app`; `CODEX_BIN` remains available for a custom development install
 
 ## Install from release
 
@@ -53,20 +70,26 @@ See [PRIVACY.md](PRIVACY.md) for the user-facing privacy summary and [SECURITY.m
    - Apple Silicon: `CodexUsageStatus-<version>-macos-arm64.zip`
    - Intel: `CodexUsageStatus-<version>-macos-x86_64.zip`
 2. Unzip it.
-3. Move `CodexUsageStatus.app` to `/Applications`.
-4. Open `CodexUsageStatus.app`.
+3. Move `Codex Usage Status.app` to `/Applications`.
+4. Open `Codex Usage Status.app`.
 
-The app is menu-bar-only, so it does not appear in the Dock. To launch it automatically after login, add `CodexUsageStatus.app` in macOS System Settings > General > Login Items.
+You can also download the matching DMG for a standard macOS drag-to-install experience. Open the DMG and drag `Codex Usage Status` onto the `Applications` shortcut. The mounted disk uses the same 1B-M logo as its volume icon, and its Finder background is a multi-resolution 1x/2x TIFF so the charcoal/lavender layout stays sharp on Retina displays. It does not install background helpers or change unrelated system settings.
+
+The app is menu-bar-only, so it does not appear in the Dock. The bundle includes the 1B-M `CodexUsageStatus.icns` app icon, while its user-facing name is `Codex Usage Status`. To launch it automatically after login, check Launch at Login directly in the menu bar; it manages a per-user LaunchAgent and preserves a custom `CODEX_BIN` setting when one already exists. The app uses a per-user instance lock so launching another installed copy does not create a second menu-bar monitor; the `--once` diagnostic remains available while the monitor runs.
+
+On its first refresh, the app automatically checks the legacy Codex layout, the current ChatGPT-bundled Codex CLI shim, the nested Codex app-server executable, and per-user `/Applications` locations. If none is executable, hover the red `?` badge or open About to see the checked locations and the next action.
 
 Unsigned GitHub builds may trigger macOS Gatekeeper warnings. For a public polished release, sign with an Apple Developer ID and notarize the app.
 
 ## Known limitations
 
-- Codex desktop must be installed at `/Applications/Codex.app`, unless `CODEX_BIN` is set for development.
+- A custom Codex installation outside the known `/Applications` and `~/Applications` layouts requires `CODEX_BIN` for a source/developer launch.
 - You must already be signed in to Codex.
 - Live usage depends on Codex's local app-server method `account/rateLimits/read`; if that local interface changes, this app may need an update.
 - The app shows usage only. It cannot buy credits, switch accounts, retry login, or change limits.
 - Local builds are ad-hoc signed by default. Downloaded release ZIPs may show Gatekeeper warnings until a notarized build is available.
+
+For a failure matrix and diagnostic interpretation, see [docs/diagnostics.md](docs/diagnostics.md).
 
 ## Build from source
 
@@ -77,9 +100,14 @@ For source builds:
 
 ```sh
 npm test
+npm run test:native
 npm run build:macos
 npm run start:macos
 ```
+
+The build embeds the tracked `branding/CodexUsageStatus.icns` file in `Contents/Resources` and declares it in the generated `Info.plist`. `npm test` covers the optional CLI. `npm run test:native` runs policy/domain, path resolution, real subprocess faults, installer migration, login-item profile handling, sleep/wake recovery, and badge-rendering checks. It requires each harness's explicit PASS marker, not merely an exit code of zero. Account responses are fake; AppKit tests require a logged-in macOS graphical session. CI runs these tests before building or packaging.
+
+`npm run test:swiftpm` runs the XCTest suite when the selected developer toolchain includes XCTest. Its isolated temporary build also works around mismatched public/private PackageDescription interfaces left by some Command Line Tools upgrades without changing system files. The direct native harnesses remain the supported test entry point when a full Xcode test environment is unavailable. `node branding/verify-logo.mjs` is an optional developer geometry check that currently uses a local bundled `sharp` path; it is not a portable release gate.
 
 The build script defaults to the Mac's hardware architecture. On Apple Silicon this creates an `arm64` app, even if Node.js is running under Rosetta. To build a specific architecture:
 
@@ -94,6 +122,8 @@ To install into `/Applications`:
 npm run install:macos
 ```
 
+The source installer validates the target bundle, stages the new app, and preserves recoverable copies when replacing either the current name or the legacy `CodexUsageStatus.app` beside the selected destination. It migrates an existing `dev.local.CodexUsageStatus` LaunchAgent to the new executable path, preserving its other settings and loaded state, and restores the previous app/configuration if installation fails. It does not create a login item for a user who did not already enable one. Manual ZIP/DMG installs still use the standard Login Items flow.
+
 The app is a menu-bar-only app, so it does not appear in the Dock.
 
 To change the menu-bar display, click the badge and choose Display Style:
@@ -101,7 +131,7 @@ To change the menu-bar display, click the badge and choose Display Style:
 - Double Ring: compact default with side labels and circular quota indicators.
 - Large Readout: larger numbers with subtle status lines for easier reading.
 
-To override the normal baseline interval while keeping the 30-second minimum:
+To select an explicit fixed success interval while keeping the 30-second minimum:
 
 ```sh
 CODEX_USAGE_REFRESH_SECONDS=180 npm run start:macos
@@ -131,12 +161,16 @@ npm run package:macos
 npm run package:macos:all
 ```
 
-`package:macos` creates a zipped `.app` for the current Mac architecture. `package:macos:all` creates both `arm64` and `x86_64` ZIPs plus `SHA256SUMS.txt` in `dist/`.
+`package:macos` creates an architecture-specific ZIP and DMG for the current Mac. `package:macos:all` creates both `arm64` and `x86_64` ZIPs and DMGs plus `SHA256SUMS.txt` in `dist/`.
 
 Release ZIPs are architecture-specific:
 
 - `CodexUsageStatus-<version>-macos-arm64.zip` for Apple Silicon Macs.
 - `CodexUsageStatus-<version>-macos-x86_64.zip` for Intel Macs.
+- `CodexUsageStatus-<version>-macos-arm64.dmg` for Apple Silicon Macs.
+- `CodexUsageStatus-<version>-macos-x86_64.dmg` for Intel Macs.
+
+Each release ZIP and DMG contains the same 1B-M app icon; each DMG also includes the matching 1B-M volume icon and 1x/2x Finder background. Only the executable architecture differs between arm64 and x86_64 packages.
 
 For another MacBook, the most reliable source-build path is to clone the repository on that Mac and run `npm run install:macos`; it will build the correct native architecture there.
 

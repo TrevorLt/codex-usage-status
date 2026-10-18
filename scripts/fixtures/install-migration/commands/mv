@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+set -euo pipefail
+printf 'mv %s\n' "$*" >> "${MOCK_LOG:?MOCK_LOG must be set}"
+if [[ "${MOCK_FAIL_STAGE_MOVE_ONCE:-0}" == 1 && "$1" == *'.codex-usage-status-stage.'* && ! -f "${MOCK_STAGE_MOVE_FAILED_FILE:-}" ]]; then
+  : > "$MOCK_STAGE_MOVE_FAILED_FILE"
+  exit 55
+fi
+exec /bin/mv "$@"

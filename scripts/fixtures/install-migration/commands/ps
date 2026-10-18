@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+set -euo pipefail
+printf 'ps %s\n' "$*" >> "${MOCK_LOG:?MOCK_LOG must be set}"
+started="${MOCK_STARTED_EXECUTABLE_FILE:?MOCK_STARTED_EXECUTABLE_FILE must be set}"
+if [[ "${1:-}" == "-axo" ]]; then
+  if [[ -f "$started" ]]; then
+    printf '424242 S %s\n' "$(<"$started")"
+  fi
+elif [[ "${1:-}" == "-p" ]]; then
+  if [[ "$2" == 424242 && -f "$started" ]]; then
+    printf 'S %s\n' "$(<"$started")"
+  else
+    exit 1
+  fi
+else
+  exit 64
+fi

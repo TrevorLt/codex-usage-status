@@ -28,6 +28,6 @@ The only network activity involved is whatever the official Codex app-server per
 
 ## Refresh behavior
 
-The default refresh interval is 120 seconds. The minimum refresh interval is 60 seconds, and failed refreshes back off to 300 seconds.
+The normal adaptive cadence is 30 seconds during startup/activity, 60 seconds after 90 seconds without a change, and 120 seconds after 5 minutes without a change. Automatic queries never start more often than every 30 seconds. Failed refreshes retry after 300 seconds, and a manual refresh is always available.
 
-Usage status does not need high-frequency polling, so the app keeps refreshes conservative.
+The app keeps the last successful reading in memory while it revalidates. After wake or a failed request, the reading is marked stale; it is not uploaded or written to a disk usage cache. A local redraw hides a window after its known reset time without making another account request.

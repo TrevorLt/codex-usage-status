@@ -1,0 +1,27 @@
+{
+  "viewBox": [0, 0, 256, 256],
+  "reference": {
+    "path": "branding/reference/1b-m.png",
+    "pixelSize": [1254, 1254],
+    "luminanceThreshold": 128
+  },
+  "finalMaster": {
+    "method": "Trace the four thresholded reference contours at 1254 by 1254, simplify each closed polygon with Ramer-Douglas-Peucker, then scale the source-coordinate path into the 256 viewBox",
+    "sourceToViewBoxScale": 0.20414673046252,
+    "simplificationToleranceSourcePixels": 0.35,
+    "contourCount": 4,
+    "pointsBeforeSimplification": [3512, 3360, 1802, 1036],
+    "pointsAfterSimplification": [2112, 1966, 1130, 774],
+    "binarySilhouetteIoUAt1254": 1,
+    "binarySilhouetteDifferenceOverUnionAt1254": 0,
+    "referenceForegroundPixelsAt1254": 312645,
+    "tracedForegroundPixelsAt1254": 312645
+  },
+  "circleFitDraft": {
+    "status": "Measurement draft only; not used by the final SVGs",
+    "sharedCenterAt256": [127.65, 126.625],
+    "outerRadiusAt256": 82.3,
+    "innerRadiusAt256": 51.7375,
+    "binarySilhouetteIoUAt256": 0.9529526525
+  }
+}

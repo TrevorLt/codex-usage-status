@@ -12,9 +12,22 @@ if CommandLine.arguments.contains("--once") {
     }
 }
 
-let app = NSApplication.shared
-MainActor.assumeIsolated {
-    let delegate = AppDelegate()
-    app.delegate = delegate
-    app.run()
+do {
+    guard let instanceGuard = try ApplicationInstanceGuard.acquireForCurrentUser() else {
+        // LaunchServices, a Login Item, or launchd may race to start another
+        // copy. The existing process already owns the user's menu-bar slot.
+        exit(0)
+    }
+
+    withExtendedLifetime(instanceGuard) {
+        MainActor.assumeIsolated {
+            let app = NSApplication.shared
+            let delegate = AppDelegate()
+            app.delegate = delegate
+            app.run()
+        }
+    }
+} catch {
+    fputs("Could not start Codex Usage Status: \(error.localizedDescription)\n", stderr)
+    exit(1)
 }
