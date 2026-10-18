@@ -8,6 +8,7 @@ This repository is organized as a small, native macOS companion app plus a Node.
 - `src/`: Node.js CLI probe for the same local Codex app-server data source.
 - `test/`: Node.js unit tests for response normalization and redaction.
 - `scripts/`: build, run, install, and release packaging scripts.
+- `branding/`: measured 1B-M SVG artwork, packaged `.icns` app icon, and visual validation.
 - `docs/`: architecture, release, and upstream integration notes.
 - `.github/workflows/`: CI and release packaging workflows.
 
@@ -26,6 +27,7 @@ Generated output is intentionally kept out of git:
 - `Codex/`: local `codex app-server --listen stdio://` JSON-RPC client.
 - `Domain/`: decoded rate-limit response models and remaining-quota normalization.
 - `UI/`: menu-bar badge styles and drawing code.
+- `IntegrationTests/WakeRecovery/`: AppKit lifecycle/recovery harness with fake data responses.
 
 The intended dependency direction is:
 

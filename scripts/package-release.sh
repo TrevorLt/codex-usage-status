@@ -3,8 +3,8 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DIST_DIR="$ROOT_DIR/dist"
-APP_DIR="$DIST_DIR/CodexUsageStatus.app"
-VERSION="${VERSION:-0.1.0}"
+APP_DIR="$DIST_DIR/Codex Usage Status.app"
+VERSION="${VERSION:-0.1.3}"
 
 detect_hardware_arch() {
   local machine
@@ -34,15 +34,20 @@ esac
 
 ZIP_NAME="CodexUsageStatus-${VERSION}-macos-${BUILD_ARCH}.zip"
 ZIP_PATH="$DIST_DIR/$ZIP_NAME"
+DMG_NAME="CodexUsageStatus-${VERSION}-macos-${BUILD_ARCH}.dmg"
+DMG_PATH="$DIST_DIR/$DMG_NAME"
 
-"$ROOT_DIR/scripts/build-macos-app.sh" >/dev/null
+BUILD_ARCH="$BUILD_ARCH" VERSION="$VERSION" "$ROOT_DIR/scripts/build-macos-app.sh" >/dev/null
 
 rm -f "$DIST_DIR"/CodexUsageStatus-"$VERSION"-macos-*.zip "$DIST_DIR/SHA256SUMS.txt"
 ditto -c -k --sequesterRsrc --keepParent "$APP_DIR" "$ZIP_PATH"
 
+BUILD_ARCH="$BUILD_ARCH" VERSION="$VERSION" "$ROOT_DIR/scripts/package-dmg.sh" >/dev/null
+
 (
   cd "$DIST_DIR"
-  openssl dgst -sha256 -r "$ZIP_NAME" > SHA256SUMS.txt
+  openssl dgst -sha256 -r "$ZIP_NAME" "$DMG_NAME" > SHA256SUMS.txt
 )
 
 echo "$ZIP_PATH"
+echo "$DMG_PATH"

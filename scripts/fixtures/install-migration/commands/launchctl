@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+set -euo pipefail
+printf 'launchctl %s\n' "$*" >> "${MOCK_LOG:?MOCK_LOG must be set}"
+case "${1:-}" in
+  list)
+    if [[ -f "${MOCK_LOADED_FILE:-}" ]] && [[ "$(<"$MOCK_LOADED_FILE")" == loaded ]]; then
+      printf '4242 0 dev.local.CodexUsageStatus\n'
+    fi
+    ;;
+  bootout)
+    printf 'unloaded\n' > "$MOCK_LOADED_FILE"
+    ;;
+  bootstrap)
+    if [[ "${MOCK_BOOTSTRAP_FAIL_ONCE:-0}" == 1 && ! -f "${MOCK_BOOTSTRAP_FAILED_FILE:-}" ]]; then
+      : > "$MOCK_BOOTSTRAP_FAILED_FILE"
+      exit 55
+    fi
+    printf 'loaded\n' > "$MOCK_LOADED_FILE"
+    plutil -extract ProgramArguments.0 raw -o - "$MOCK_AGENT_PLIST" > "$MOCK_STARTED_EXECUTABLE_FILE"
+    ;;
+  *) exit 64 ;;
+esac

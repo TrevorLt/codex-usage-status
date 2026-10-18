@@ -13,5 +13,6 @@ let package = Package(
     targets: [
         .executableTarget(name: "CodexUsageStatus"),
         .testTarget(name: "CodexUsageStatusTests", dependencies: ["CodexUsageStatus"])
-    ]
+    ],
+    swiftLanguageModes: [.v6]
 )

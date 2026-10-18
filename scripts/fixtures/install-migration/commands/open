@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+set -euo pipefail
+printf 'open %s\n' "$*" >> "${MOCK_LOG:?MOCK_LOG must be set}"
+status="${MOCK_OPEN_STATUS:-0}"
+if [[ "$status" == 0 ]]; then
+  printf '%s\n' "${MOCK_TARGET_EXECUTABLE:?MOCK_TARGET_EXECUTABLE must be set}" > "$MOCK_STARTED_EXECUTABLE_FILE"
+fi
+exit "$status"
