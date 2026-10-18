@@ -12,12 +12,17 @@ The menu-bar `?` badge means the latest refresh did not produce a usable usage s
 | Not signed in / unauthorized | The local Codex app-server cannot authorize the account | Reports that Codex must be opened and signed in, without displaying raw server text |
 | Usage API not found | The installed Codex version does not expose `account/rateLimits/read` | Reports that Codex should be updated |
 | Unsupported or missing usage response | The protocol returned malformed data or no usable limit windows | Keeps the raw response out of the UI and asks for a Codex update/diagnostic check |
+| Null/scalar RPC result or oversized stdout line | The app-server response does not match the usage protocol | Returns a controlled protocol error instead of crashing; stdout buffering is bounded |
+| Large stderr output | Codex writes diagnostics while preparing its usage response | Drains diagnostics while the process runs; retains only bounded classification state and never displays raw messages |
+| Non-ASCII text split between reads | Pipe reads need not end at a UTF-8 character boundary | Buffers complete lines as bytes before decoding them |
 | App-server timeout | The local process or its upstream request did not answer within 20 seconds | Reports timeout; manual refresh and the existing retry/recovery policy remain available |
 | Sleep/wake or transient network failure after a successful read | A previously valid snapshot could not be refreshed | Keeps the last good reading marked stale, coalesces wake/network recovery, and avoids concurrent requests |
 | Fresh install with no successful read yet | There is no safe last-known value to display | Shows the error badge and reason rather than inventing 100% or persisting account-specific quota to disk |
 | Wrong architecture ZIP | The app usually fails to launch before it can render a badge | Choose the `arm64` package for Apple Silicon or `x86_64` for Intel; this is distinct from a running red `?` badge |
 | Gatekeeper or quarantine block | macOS stopped the app before its process started | Use the normal macOS Open/Privacy & Security approval flow; do not disable Gatekeeper or remove quarantine globally |
 | Hidden by a menu-bar manager | The item is running but placed in Hidden Bar/Bartender overflow | Expand the manager and move CodexUsageStatus into its visible section; this does not produce a `?` badge |
+
+The Node CLI reports incomplete windows explicitly; a missing percentage is unknown, never 100% remaining, and a weekly-only window is not relabeled as 5H. It checks the common Codex and ChatGPT installation layouts and reports safe categories for launch, timeout, authentication and protocol failures.
 
 ## What the app does not do
 

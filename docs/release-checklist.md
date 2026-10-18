@@ -6,12 +6,13 @@ Use this checklist before publishing a GitHub release.
 
 ```sh
 npm test
-bash scripts/test-wake-recovery.sh
-node branding/verify-logo.mjs
+npm run test:native
 BUILD_ARCH=arm64 npm run build:macos
 BUILD_ARCH=x86_64 npm run build:macos
 npm run package:macos:all
 ```
+
+The native suite must emit `NATIVE TEST SUITE PASS` after every required harness has emitted its own PASS marker. A GUI process exiting zero before its assertions execute is not a pass. Run from a logged-in macOS graphical session; missing WindowServer access is a failure requiring investigation. The optional `npm run test:swiftpm` also exercises XCTest when it is included in the selected toolchain. The logo geometry verifier currently requires a developer-local `sharp` path and is not a portable CI prerequisite.
 
 Confirm the generated app architecture:
 

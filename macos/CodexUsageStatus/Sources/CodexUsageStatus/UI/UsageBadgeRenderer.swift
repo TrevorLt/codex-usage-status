@@ -1,5 +1,13 @@
 import AppKit
 
+struct UsageBadgeRendering {
+    /// The complete neutral badge as a template image. AppKit supplies its menu-bar tint.
+    let image: NSImage
+
+    /// Red warning marks for windows below 20%, drawn above the template image.
+    let warningOverlay: NSImage?
+}
+
 enum UsageBadgeRenderer {
     private static let doubleRingImageSize = NSSize(width: 86, height: 24)
     private static let largeReadoutImageSize = NSSize(width: 86, height: 24)
@@ -13,8 +21,16 @@ enum UsageBadgeRenderer {
         }
     }
 
-    static func image(for usage: UsageSummary, style: BadgeStyle, appearance: NSAppearance, isStale: Bool = false, now: Date = Date(), hideReadings: Bool = false) -> NSImage {
-        render(style: style,
+    static func rendering(
+        for usage: UsageSummary,
+        style: BadgeStyle,
+        appearance: NSAppearance,
+        isStale: Bool = false,
+        now: Date = Date(),
+        hideReadings: Bool = false
+    ) -> UsageBadgeRendering {
+        render(
+            style: style,
             left: BadgeValue(label: "5H", percent: hideReadings || usage.fiveHour.isExpired(at: now) ? nil : usage.fiveHour.remainingPercent),
             right: BadgeValue(label: "7D", percent: hideReadings || usage.weekly.isExpired(at: now) ? nil : usage.weekly.remainingPercent),
             appearance: appearance,
@@ -22,20 +38,71 @@ enum UsageBadgeRenderer {
         )
     }
 
+    /// Legacy single-image callers receive the native template base, including during warnings.
+    /// Use `rendering(for:style:appearance:isStale:now:hideReadings:)` with `apply(_:to:)`
+    /// when the red warning overlay must also be displayed.
+    static func image(
+        for usage: UsageSummary,
+        style: BadgeStyle,
+        appearance: NSAppearance,
+        isStale: Bool = false,
+        now: Date = Date(),
+        hideReadings: Bool = false
+    ) -> NSImage {
+        rendering(for: usage, style: style, appearance: appearance, isStale: isStale, now: now, hideReadings: hideReadings).image
+    }
+
     static func placeholderImage(style: BadgeStyle, appearance: NSAppearance) -> NSImage {
-        render(style: style,
+        render(
+            style: style,
             left: BadgeValue(label: "5H", percent: nil),
             right: BadgeValue(label: "7D", percent: nil),
             appearance: appearance
-        )
+        ).image
     }
 
     static func errorImage(style: BadgeStyle, appearance: NSAppearance) -> NSImage {
-        render(style: style,
+        render(
+            style: style,
             left: BadgeValue(label: "5H", percent: nil, overrideText: "?"),
             right: BadgeValue(label: "7D", percent: nil, overrideText: "?"),
             appearance: appearance,
             forcedColor: .systemRed
+        ).image
+    }
+
+    /// Installs the template image as the button image and positions the optional red overlay
+    /// over the exact image rect, so neutral marks retain AppKit's native template tinting.
+    @MainActor
+    static func apply(_ rendering: UsageBadgeRendering, to button: NSButton) {
+        button.image = rendering.image
+        let overlayView = button.subviews.compactMap { $0 as? BadgeWarningOverlayView }.first
+
+        guard let warningOverlay = rendering.warningOverlay else {
+            overlayView?.removeFromSuperview()
+            return
+        }
+
+        let warningView = overlayView ?? BadgeWarningOverlayView(frame: .zero)
+        if overlayView == nil {
+            button.addSubview(warningView, positioned: .above, relativeTo: nil)
+        }
+        warningView.warningImage = warningOverlay
+        warningView.frame = button.cell?.imageRect(forBounds: button.bounds)
+            ?? centeredImageRect(for: rendering.image, in: button.bounds)
+    }
+
+    @MainActor
+    static func apply(image: NSImage, to button: NSButton) {
+        apply(UsageBadgeRendering(image: image, warningOverlay: nil), to: button)
+    }
+
+    private static func centeredImageRect(for image: NSImage, in bounds: NSRect) -> NSRect {
+        NSRect(
+            x: bounds.midX - image.size.width / 2,
+            y: bounds.midY - image.size.height / 2,
+            width: image.size.width,
+            height: image.size.height
         )
     }
 
@@ -46,19 +113,69 @@ enum UsageBadgeRenderer {
         appearance: NSAppearance,
         forcedColor: NSColor? = nil,
         isStale: Bool = false
-    ) -> NSImage {
-        let usesTemplateTint = forcedColor == nil && !containsWarning(left: left, right: right)
+    ) -> UsageBadgeRendering {
+        let image = renderLayer(
+            style: style,
+            left: left,
+            right: right,
+            appearance: appearance,
+            forcedColor: forcedColor,
+            isStale: isStale,
+            warningOverlay: false
+        )
+        let overlay = forcedColor == nil && containsWarning(left: left, right: right)
+            ? renderLayer(
+                style: style,
+                left: left,
+                right: right,
+                appearance: appearance,
+                isStale: isStale,
+                warningOverlay: true
+            )
+            : nil
 
-        switch style {
-        case .doubleRing:
-            return renderDoubleRing(left: left, right: right, appearance: appearance, forcedColor: forcedColor, usesTemplateTint: usesTemplateTint, isStale: isStale)
-        case .largeReadout:
-            return renderLargeReadout(left: left, right: right, appearance: appearance, forcedColor: forcedColor, usesTemplateTint: usesTemplateTint, isStale: isStale)
-        }
+        return UsageBadgeRendering(image: image, warningOverlay: overlay)
     }
 
     private static func containsWarning(left: BadgeValue, right: BadgeValue) -> Bool {
         [left.percent, right.percent].compactMap { $0 }.contains { $0 < 20 }
+    }
+
+    private static func renderLayer(
+        style: BadgeStyle,
+        left: BadgeValue,
+        right: BadgeValue,
+        appearance: NSAppearance,
+        forcedColor: NSColor? = nil,
+        isStale: Bool,
+        warningOverlay: Bool
+    ) -> NSImage {
+        let foregroundColor = warningOverlay
+            ? NSColor.systemRed
+            : (forcedColor == nil ? NSColor.black : NSColor.labelColor)
+
+        switch style {
+        case .doubleRing:
+            return renderDoubleRing(
+                left: left,
+                right: right,
+                appearance: appearance,
+                forcedColor: forcedColor,
+                foregroundColor: foregroundColor,
+                isStale: isStale,
+                warningOverlay: warningOverlay
+            )
+        case .largeReadout:
+            return renderLargeReadout(
+                left: left,
+                right: right,
+                appearance: appearance,
+                forcedColor: forcedColor,
+                foregroundColor: foregroundColor,
+                isStale: isStale,
+                warningOverlay: warningOverlay
+            )
+        }
     }
 
     private static func renderDoubleRing(
@@ -66,27 +183,42 @@ enum UsageBadgeRenderer {
         right: BadgeValue,
         appearance: NSAppearance,
         forcedColor: NSColor?,
-        usesTemplateTint: Bool,
-        isStale: Bool
+        foregroundColor: NSColor,
+        isStale: Bool,
+        warningOverlay: Bool
     ) -> NSImage {
-        let imageSize = doubleRingImageSize
-        let image = NSImage(size: imageSize)
-        let foregroundColor = usesTemplateTint ? NSColor.black : neutralColor
+        let image = NSImage(size: doubleRingImageSize)
         image.lockFocus()
         defer { image.unlockFocus() }
 
         appearance.performAsCurrentDrawingAppearance {
-            let rect = NSRect(origin: .zero, size: imageSize)
+            let rect = NSRect(origin: .zero, size: doubleRingImageSize)
             NSColor.clear.setFill()
             rect.fill()
 
-            drawDivider(isStale: isStale, foregroundColor: foregroundColor)
+            if !warningOverlay {
+                drawDivider(isStale: isStale, foregroundColor: foregroundColor)
+            }
 
-            drawLabeledRing(value: left, labelRect: NSRect(x: 1, y: 4.0, width: 11, height: 16), ringCenter: NSPoint(x: 29, y: 12), foregroundColor: foregroundColor, forcedColor: forcedColor)
-            drawLabeledRing(value: right, labelRect: NSRect(x: 50, y: 4.0, width: 11, height: 16), ringCenter: NSPoint(x: 75, y: 12), foregroundColor: foregroundColor, forcedColor: forcedColor)
+            drawLabeledRing(
+                value: left,
+                labelRect: NSRect(x: 1, y: 4.0, width: 11, height: 16),
+                ringCenter: NSPoint(x: 29, y: 12),
+                foregroundColor: foregroundColor,
+                forcedColor: forcedColor,
+                warningOverlay: warningOverlay
+            )
+            drawLabeledRing(
+                value: right,
+                labelRect: NSRect(x: 50, y: 4.0, width: 11, height: 16),
+                ringCenter: NSPoint(x: 75, y: 12),
+                foregroundColor: foregroundColor,
+                forcedColor: forcedColor,
+                warningOverlay: warningOverlay
+            )
         }
 
-        image.isTemplate = usesTemplateTint
+        image.isTemplate = !warningOverlay && forcedColor == nil
         return image
     }
 
@@ -95,27 +227,44 @@ enum UsageBadgeRenderer {
         right: BadgeValue,
         appearance: NSAppearance,
         forcedColor: NSColor?,
-        usesTemplateTint: Bool,
-        isStale: Bool
+        foregroundColor: NSColor,
+        isStale: Bool,
+        warningOverlay: Bool
     ) -> NSImage {
-        let imageSize = largeReadoutImageSize
-        let image = NSImage(size: imageSize)
-        let foregroundColor = usesTemplateTint ? NSColor.black : neutralColor
+        let image = NSImage(size: largeReadoutImageSize)
         image.lockFocus()
         defer { image.unlockFocus() }
 
         appearance.performAsCurrentDrawingAppearance {
-            let rect = NSRect(origin: .zero, size: imageSize)
+            let rect = NSRect(origin: .zero, size: largeReadoutImageSize)
             NSColor.clear.setFill()
             rect.fill()
 
-            drawDivider(isStale: isStale, foregroundColor: foregroundColor)
+            if !warningOverlay {
+                drawDivider(isStale: isStale, foregroundColor: foregroundColor)
+            }
 
-            drawReadoutGroup(value: left, labelRect: NSRect(x: 1, y: 4.0, width: 11, height: 16), numberRect: NSRect(x: 15, y: 3.4, width: 25, height: 17), lineRect: NSRect(x: 1, y: 2.4, width: 36, height: 1.5), foregroundColor: foregroundColor, forcedColor: forcedColor)
-            drawReadoutGroup(value: right, labelRect: NSRect(x: 49, y: 4.0, width: 11, height: 16), numberRect: NSRect(x: 61, y: 3.4, width: 25, height: 17), lineRect: NSRect(x: 48, y: 2.4, width: 36, height: 1.5), foregroundColor: foregroundColor, forcedColor: forcedColor)
+            drawReadoutGroup(
+                value: left,
+                labelRect: NSRect(x: 1, y: 4.0, width: 11, height: 16),
+                numberRect: NSRect(x: 15, y: 3.4, width: 25, height: 17),
+                lineRect: NSRect(x: 1, y: 2.4, width: 36, height: 1.5),
+                foregroundColor: foregroundColor,
+                forcedColor: forcedColor,
+                warningOverlay: warningOverlay
+            )
+            drawReadoutGroup(
+                value: right,
+                labelRect: NSRect(x: 49, y: 4.0, width: 11, height: 16),
+                numberRect: NSRect(x: 61, y: 3.4, width: 25, height: 17),
+                lineRect: NSRect(x: 48, y: 2.4, width: 36, height: 1.5),
+                foregroundColor: foregroundColor,
+                forcedColor: forcedColor,
+                warningOverlay: warningOverlay
+            )
         }
 
-        image.isTemplate = usesTemplateTint
+        image.isTemplate = !warningOverlay && forcedColor == nil
         return image
     }
 
@@ -135,13 +284,33 @@ enum UsageBadgeRenderer {
         labelRect: NSRect,
         ringCenter: NSPoint,
         foregroundColor: NSColor,
-        forcedColor: NSColor?
+        forcedColor: NSColor?,
+        warningOverlay: Bool
     ) {
+        if warningOverlay {
+            guard let percent = value.percent, percent < 20 else { return }
+            drawWarningArc(percent: percent, center: ringCenter, color: .systemRed)
+            drawText(value.centerText, center: ringCenter, yOffset: -5.5, fontSize: value.centerText.count >= 3 ? 7.4 : 9.0, weight: .bold, alpha: 1, foregroundColor: .systemRed)
+            return
+        }
+
         drawSideLabel(value.label, in: labelRect, foregroundColor: foregroundColor)
-        drawRing(value: value, center: ringCenter, foregroundColor: foregroundColor, forcedColor: forcedColor)
+        drawRing(
+            value: value,
+            center: ringCenter,
+            foregroundColor: foregroundColor,
+            forcedColor: forcedColor,
+            suppressWarningContent: forcedColor == nil
+        )
     }
 
-    private static func drawRing(value: BadgeValue, center: NSPoint, foregroundColor: NSColor, forcedColor: NSColor?) {
+    private static func drawRing(
+        value: BadgeValue,
+        center: NSPoint,
+        foregroundColor: NSColor,
+        forcedColor: NSColor?,
+        suppressWarningContent: Bool
+    ) {
         let radius: CGFloat = 9.7
         let lineWidth: CGFloat = 2.25
         let track = NSBezierPath()
@@ -151,7 +320,8 @@ enum UsageBadgeRenderer {
         foregroundColor.withAlphaComponent(0.20).setStroke()
         track.stroke()
 
-        if let percent = value.percent {
+        let isWarning = suppressWarningContent && (value.percent.map { $0 < 20 } ?? false)
+        if let percent = value.percent, !isWarning {
             let progress = max(0, min(100, percent))
             let ring = NSBezierPath()
             ring.appendArc(
@@ -167,7 +337,25 @@ enum UsageBadgeRenderer {
             ring.stroke()
         }
 
-        drawText(value.centerText, center: center, yOffset: -5.5, fontSize: value.centerText.count >= 3 ? 7.4 : 9.0, weight: .bold, alpha: 0.98, foregroundColor: foregroundColor)
+        if !isWarning {
+            drawText(value.centerText, center: center, yOffset: -5.5, fontSize: value.centerText.count >= 3 ? 7.4 : 9.0, weight: .bold, alpha: 0.98, foregroundColor: foregroundColor)
+        }
+    }
+
+    private static func drawWarningArc(percent: Int, center: NSPoint, color: NSColor) {
+        guard percent > 0 else { return }
+        let ring = NSBezierPath()
+        ring.appendArc(
+            withCenter: center,
+            radius: 9.7,
+            startAngle: 90,
+            endAngle: 90 - CGFloat(min(100, percent)) * 3.6,
+            clockwise: true
+        )
+        ring.lineWidth = 2.25
+        ring.lineCapStyle = .round
+        color.withAlphaComponent(0.95).setStroke()
+        ring.stroke()
     }
 
     private static func drawReadoutGroup(
@@ -176,26 +364,40 @@ enum UsageBadgeRenderer {
         numberRect: NSRect,
         lineRect: NSRect,
         foregroundColor: NSColor,
-        forcedColor: NSColor?
+        forcedColor: NSColor?,
+        warningOverlay: Bool
     ) {
         let percent = value.percent.map { max(0, min(100, $0)) }
-        let accent = forcedColor ?? percent.map { color(for: $0, foregroundColor: foregroundColor) } ?? foregroundColor.withAlphaComponent(0.26)
-        let emphasisAlpha: CGFloat = (percent ?? 100) < 20 ? 1.0 : 0.96
+        let isWarning = forcedColor == nil && (percent.map { $0 < 20 } ?? false)
+
+        if warningOverlay {
+            guard isWarning, let percent else { return }
+            drawString(value.centerText, in: numberRect, fontSize: value.centerText.count >= 3 ? 11.6 : 13.2, weight: .bold, alpha: 1, alignment: .left, foregroundColor: .systemRed)
+            drawReadoutFill(percent: percent, lineRect: lineRect, color: .systemRed, alpha: 0.95)
+            return
+        }
 
         drawStackedLabel(value.label, in: labelRect, alpha: 0.62, foregroundColor: foregroundColor)
-        drawString(value.centerText, in: numberRect, fontSize: value.centerText.count >= 3 ? 11.6 : 13.2, weight: .bold, alpha: emphasisAlpha, alignment: .left, foregroundColor: foregroundColor)
+        if !isWarning {
+            drawString(value.centerText, in: numberRect, fontSize: value.centerText.count >= 3 ? 11.6 : 13.2, weight: .bold, alpha: 0.96, alignment: .left, foregroundColor: foregroundColor)
+        }
 
         let track = NSBezierPath(roundedRect: lineRect, xRadius: 0.7, yRadius: 0.7)
         foregroundColor.withAlphaComponent(0.14).setFill()
         track.fill()
 
-        if let percent {
-            let fillWidth = max(1.2, lineRect.width * CGFloat(percent) / 100)
-            let fillRect = NSRect(x: lineRect.minX, y: lineRect.minY, width: fillWidth, height: lineRect.height)
-            let fillPath = NSBezierPath(roundedRect: fillRect, xRadius: 0.7, yRadius: 0.7)
-            accent.withAlphaComponent(percent < 20 ? 0.95 : 0.72).setFill()
-            fillPath.fill()
+        if let percent, !isWarning {
+            let accent = forcedColor ?? color(for: percent, foregroundColor: foregroundColor)
+            drawReadoutFill(percent: percent, lineRect: lineRect, color: accent, alpha: 0.72)
         }
+    }
+
+    private static func drawReadoutFill(percent: Int, lineRect: NSRect, color: NSColor, alpha: CGFloat) {
+        let fillWidth = max(1.2, lineRect.width * CGFloat(percent) / 100)
+        let fillRect = NSRect(x: lineRect.minX, y: lineRect.minY, width: fillWidth, height: lineRect.height)
+        let fillPath = NSBezierPath(roundedRect: fillRect, xRadius: 0.7, yRadius: 0.7)
+        color.withAlphaComponent(alpha).setFill()
+        fillPath.fill()
     }
 
     private static func drawText(
@@ -275,11 +477,25 @@ enum UsageBadgeRenderer {
         return style
     }
 
-    private static let neutralColor = NSColor.labelColor
+    private static var neutralColor: NSColor { NSColor.labelColor }
 
     private static func color(for percent: Int, foregroundColor: NSColor) -> NSColor {
         percent < 20 ? .systemRed : foregroundColor
     }
+}
+
+private final class BadgeWarningOverlayView: NSView {
+    var warningImage: NSImage? {
+        didSet { needsDisplay = true }
+    }
+
+    override var isFlipped: Bool { false }
+
+    override func draw(_ dirtyRect: NSRect) {
+        warningImage?.draw(in: bounds, from: .zero, operation: .sourceOver, fraction: 1)
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
 }
 
 struct BadgeValue {
