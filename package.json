@@ -8,8 +8,10 @@
     "codex-usage-status": "./src/cli.js"
   },
   "scripts": {
-    "test": "node --test",
-    "check": "node --test",
+    "test": "node --test ./test/*.test.js",
+    "check": "node --test ./test/*.test.js",
+    "test:native": "bash ./scripts/test-native.sh",
+    "test:swiftpm": "bash scripts/test-swiftpm.sh",
     "usage": "node ./src/cli.js",
     "usage:json": "node ./src/cli.js --json",
     "build:macos": "bash ./scripts/build-macos-app.sh",
