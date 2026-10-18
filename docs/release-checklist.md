@@ -21,8 +21,8 @@ lipo -archs "dist/Codex Usage Status.app/Contents/MacOS/CodexUsageStatus"
 codesign --verify --deep --strict --verbose=2 "dist/Codex Usage Status.app"
 plutil -extract CFBundleIconFile raw -o - "dist/Codex Usage Status.app/Contents/Info.plist"
 test -f "dist/Codex Usage Status.app/Contents/Resources/CodexUsageStatus.icns"
-test -f dist/CodexUsageStatus-0.1.3-macos-arm64.dmg
-test -f dist/CodexUsageStatus-0.1.3-macos-x86_64.dmg
+test -f dist/CodexUsageStatus-0.1.4-macos-arm64.dmg
+test -f dist/CodexUsageStatus-0.1.4-macos-x86_64.dmg
 ```
 
 Run a live local data-source check on a signed-in Codex desktop installation:
