@@ -8,7 +8,7 @@ test_dir="$(mktemp -d /private/tmp/codex-fetcher-lifecycle.XXXXXX)"
 sdk_path="$(xcrun --show-sdk-path)"
 
 swiftc -swift-version 6 -sdk "$sdk_path" -target "$(uname -m)-apple-macosx13.0" \
-  -module-cache-path "$test_dir/module-cache" \
+  -module-cache-path "${CODEX_USAGE_TEST_MODULE_CACHE:-$test_dir/module-cache}" \
   "$source_root/App/Configuration.swift" \
   "$source_root/Codex/CodexUsageFetcher.swift" \
   "$source_root/Domain/UsageModels.swift" \

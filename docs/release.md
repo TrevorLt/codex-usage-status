@@ -6,6 +6,7 @@ For a full pre-release pass, also use [release-checklist.md](release-checklist.m
 
 ```sh
 npm test
+npm run test:native
 npm run package:macos:all
 ```
 
@@ -24,6 +25,8 @@ The single-architecture package script builds the app for the Mac's hardware arc
 BUILD_ARCH=arm64 npm run package:macos
 BUILD_ARCH=x86_64 npm run package:macos
 ```
+
+The CI and release workflows require the native behavior suite before their build/package jobs. Test a development build with an explicit version such as `VERSION=0.1.3-dev npm run build:macos`; do not replace an existing release's assets with an unreleased build.
 
 ## Signing
 

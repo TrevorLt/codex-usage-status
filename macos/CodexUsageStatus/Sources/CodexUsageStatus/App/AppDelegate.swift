@@ -319,7 +319,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 let cacheExpired = age < 0 || age > 86_400
                 let stale = lastError != nil || isAwaitingFreshRead || cacheExpired || age > max(120, refreshPolicy.currentInterval * 2)
                     || lastUsage.fiveHour.isExpired(at: Date()) || lastUsage.weekly.isExpired(at: Date())
-                button.image = UsageBadgeRenderer.image(for: lastUsage, style: badgeStyle, appearance: appearance, isStale: stale, hideReadings: cacheExpired)
+                let rendering = UsageBadgeRenderer.rendering(for: lastUsage, style: badgeStyle, appearance: appearance, isStale: stale, hideReadings: cacheExpired)
+                UsageBadgeRenderer.apply(rendering, to: button)
                 var tooltip = stale ? "Last known readings (~ means awaiting a successful update)\n" : ""
                 tooltip += cacheExpired ? "Cached readings expired; waiting for a successful update" : lastUsage.tooltip(formatter: dateFormatter)
                 tooltip += "\nLast successful read: \(dateFormatter.string(from: lastRefreshDate))"
@@ -327,10 +328,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 button.toolTip = tooltip
                 button.setAccessibilityLabel(tooltip)
             } else if let lastError {
-                button.image = UsageBadgeRenderer.errorImage(style: badgeStyle, appearance: appearance)
+                UsageBadgeRenderer.apply(UsageBadgeRendering(image: UsageBadgeRenderer.errorImage(style: badgeStyle, appearance: appearance), warningOverlay: nil), to: button)
                 button.toolTip = "Codex usage: \(lastError.localizedDescription)"
             } else {
-                button.image = UsageBadgeRenderer.placeholderImage(style: badgeStyle, appearance: appearance)
+                UsageBadgeRenderer.apply(UsageBadgeRendering(image: UsageBadgeRenderer.placeholderImage(style: badgeStyle, appearance: appearance), warningOverlay: nil), to: button)
                 button.toolTip = "Codex usage: waiting for first refresh"
             }
         }

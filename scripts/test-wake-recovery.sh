@@ -8,7 +8,7 @@ wake_test_dir="$(mktemp -d /private/tmp/codex-wake-recovery.XXXXXX)"
 sdk_path="$(xcrun --show-sdk-path)"
 
 swiftc -swift-version 6 -sdk "$sdk_path" -target "$(uname -m)-apple-macosx13.0" \
-  -module-cache-path "$wake_test_dir/module-cache" \
+  -module-cache-path "${CODEX_USAGE_TEST_MODULE_CACHE:-$wake_test_dir/module-cache}" \
   "$source_root/App/AppDelegate.swift" \
   "$source_root/App/Configuration.swift" \
   "$source_root/App/RefreshPolicy.swift" \

@@ -26,26 +26,47 @@ enum CodexUsageFetcher {
         let standardInput = Pipe()
         let standardOutput = Pipe()
         let standardError = Pipe()
-
         process.standardInput = standardInput
         process.standardOutput = standardOutput
         process.standardError = standardError
 
         let responseBox = ResponseBox()
-        let finished = DispatchSemaphore(value: 0)
-        process.terminationHandler = { process in
-            responseBox.markTerminated(process.terminationStatus)
-            finished.signal()
+        let diagnostics = ProcessDiagnosticCapture()
+        let completion = ProcessCompletion()
+        let standardOutputEOF = PipeEndOfFile()
+        let standardErrorEOF = PipeEndOfFile()
+        process.terminationHandler = { terminatedProcess in
+            responseBox.markTerminated(terminatedProcess.terminationStatus)
+            completion.markFinished()
         }
 
         standardOutput.fileHandleForReading.readabilityHandler = { handle in
-            responseBox.append(handle.availableData)
+            let data = handle.availableData
+            if data.isEmpty {
+                handle.readabilityHandler = nil
+                standardOutputEOF.markReached()
+            } else {
+                responseBox.append(data)
+            }
+        }
+        standardError.fileHandleForReading.readabilityHandler = { handle in
+            let data = handle.availableData
+            if data.isEmpty {
+                handle.readabilityHandler = nil
+                standardErrorEOF.markReached()
+            } else {
+                diagnostics.append(data)
+            }
         }
 
         do {
             try process.run()
         } catch {
-            standardOutput.fileHandleForReading.readabilityHandler = nil
+            closePipes(
+                standardInput: standardInput,
+                standardOutput: standardOutput,
+                standardError: standardError
+            )
             throw FetchError.appServerLaunchFailed
         }
 
@@ -55,29 +76,44 @@ enum CodexUsageFetcher {
             #"{"method":"account/rateLimits/read","id":2}"#
         ].joined(separator: "\n") + "\n"
 
-        standardInput.fileHandleForWriting.write(Data(requestLines.utf8))
+        if process.isRunning {
+            do {
+                try standardInput.fileHandleForWriting.write(contentsOf: Data(requestLines.utf8))
+            } catch {
+                finishProcess(
+                    process,
+                    completion: completion,
+                    standardOutputEOF: standardOutputEOF,
+                    standardErrorEOF: standardErrorEOF,
+                    standardInput: standardInput,
+                    standardOutput: standardOutput,
+                    standardError: standardError
+                )
+                throw FetchError.appServerCommunicationFailed
+            }
+        }
 
-        if responseBox.wait(timeout: .now() + AppConfig.appServerTimeout) == .timedOut {
-            standardOutput.fileHandleForReading.readabilityHandler = nil
-            standardInput.fileHandleForWriting.closeFile()
-            terminateProcess(process, finished: finished)
+        let timedOut = responseBox.wait(timeout: .now() + AppConfig.appServerTimeout) == .timedOut
+        finishProcess(
+            process,
+            completion: completion,
+            standardOutputEOF: standardOutputEOF,
+            standardErrorEOF: standardErrorEOF,
+            standardInput: standardInput,
+            standardOutput: standardOutput,
+            standardError: standardError
+        )
+
+        if timedOut {
             throw FetchError.timeout
         }
-
-        standardOutput.fileHandleForReading.readabilityHandler = nil
-        if !process.isRunning {
-            responseBox.append(standardOutput.fileHandleForReading.readDataToEndOfFile())
-        }
-        standardInput.fileHandleForWriting.closeFile()
-        terminateProcess(process, finished: finished)
-        let standardErrorData = standardError.fileHandleForReading.readDataToEndOfFile()
 
         switch responseBox.result() {
         case .success(let response):
             return response
         case .failure(let error):
             if case .appServerExited(let status, _) = error as? FetchError {
-                throw FetchError.appServerExited(status, safeProcessErrorDescription(standardErrorData))
+                throw FetchError.appServerExited(status, diagnostics.safeDescription())
             }
             throw error
         case .none:
@@ -85,72 +121,112 @@ enum CodexUsageFetcher {
         }
     }
 
-    private static func terminateProcess(_ process: Process, finished: DispatchSemaphore) {
+    private static func finishProcess(
+        _ process: Process,
+        completion: ProcessCompletion,
+        standardOutputEOF: PipeEndOfFile,
+        standardErrorEOF: PipeEndOfFile,
+        standardInput: Pipe,
+        standardOutput: Pipe,
+        standardError: Pipe
+    ) {
+        standardInput.fileHandleForWriting.closeFile()
+        terminateProcess(process, completion: completion)
+
+        // Process termination closes its pipe writers. Drain final bytes and wait for EOF,
+        // but keep cleanup bounded if a descendant inherited either descriptor.
+        _ = standardOutputEOF.wait(timeout: .now() + .milliseconds(250))
+        _ = standardErrorEOF.wait(timeout: .now() + .milliseconds(250))
+
+        standardOutput.fileHandleForReading.readabilityHandler = nil
+        standardError.fileHandleForReading.readabilityHandler = nil
+        process.terminationHandler = nil
+
+        closePipes(
+            standardInput: standardInput,
+            standardOutput: standardOutput,
+            standardError: standardError
+        )
+    }
+
+    private static func closePipes(
+        standardInput: Pipe,
+        standardOutput: Pipe,
+        standardError: Pipe
+    ) {
+        standardInput.fileHandleForWriting.closeFile()
+        standardOutput.fileHandleForReading.closeFile()
+        standardError.fileHandleForReading.closeFile()
+    }
+
+    private static func terminateProcess(_ process: Process, completion: ProcessCompletion) {
         guard process.isRunning else {
             return
         }
+
         process.terminate()
-        if finished.wait(timeout: .now() + 1) == .timedOut, process.isRunning {
-            kill(process.processIdentifier, SIGKILL)
-            _ = finished.wait(timeout: .now() + 1)
+        if completion.wait(timeout: .now() + 1) == .timedOut, process.isRunning {
+            _ = kill(process.processIdentifier, SIGKILL)
+            _ = completion.wait(timeout: .now() + 1)
         }
-    }
-
-    private static func safeProcessErrorDescription(_ data: Data) -> String? {
-        guard let message = String(data: data, encoding: .utf8), !message.isEmpty else {
-            return nil
-        }
-
-        let normalized = message.lowercased()
-        if normalized.contains("not signed") || normalized.contains("sign in") ||
-            normalized.contains("unauthorized") || normalized.contains("authentication") {
-            return "Codex is not signed in. Open Codex and sign in, then refresh."
-        }
-
-        if normalized.contains("permission") || normalized.contains("operation not permitted") ||
-            normalized.contains("could not initialize") || normalized.contains("failed to initialize") {
-            return "Codex could not initialize its local runtime. Open Codex once, then refresh."
-        }
-
-        return nil
     }
 }
 
 final class ResponseBox: @unchecked Sendable {
+    static let maximumLineBytes = 1_048_576
+
     private let lock = NSLock()
     private let semaphore = DispatchSemaphore(value: 0)
-    private var buffer = ""
+    private var lineBuffer = Data()
     private var storedResult: Result<RateLimitsResponse, Error>?
     private var terminationStatus: Int32?
 
+    var bufferedByteCount: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return lineBuffer.count
+    }
+
     func append(_ data: Data) {
-        guard !data.isEmpty, let text = String(data: data, encoding: .utf8) else {
+        guard !data.isEmpty else {
             return
         }
 
         lock.lock()
         defer { lock.unlock() }
 
-        if storedResult != nil {
+        guard storedResult == nil else {
             return
         }
 
-        buffer.append(text)
-        while let newline = buffer.firstIndex(of: "\n") {
-            let line = String(buffer[..<newline])
-            buffer.removeSubrange(...newline)
+        for byte in data {
+            if byte == 0x0A {
+                if lineBuffer.last == 0x0D {
+                    lineBuffer.removeLast()
+                }
+                let line = lineBuffer
+                lineBuffer.removeAll(keepingCapacity: true)
 
-            do {
-                if let response = try Self.parseRateLimitsLine(line) {
-                    storedResult = .success(response)
+                do {
+                    if let response = try Self.parseRateLimitsLine(line) {
+                        storedResult = .success(response)
+                        semaphore.signal()
+                        return
+                    }
+                } catch {
+                    storedResult = .failure(error)
                     semaphore.signal()
                     return
                 }
-            } catch {
-                storedResult = .failure(error)
+                continue
+            }
+
+            guard lineBuffer.count < Self.maximumLineBytes else {
+                storedResult = .failure(FetchError.invalidOutput)
                 semaphore.signal()
                 return
             }
+            lineBuffer.append(byte)
         }
     }
 
@@ -167,7 +243,7 @@ final class ResponseBox: @unchecked Sendable {
         if let terminationStatus {
             return .failure(FetchError.appServerExited(Int(terminationStatus), nil))
         }
-        return storedResult
+        return nil
     }
 
     func markTerminated(_ status: Int32) {
@@ -178,26 +254,48 @@ final class ResponseBox: @unchecked Sendable {
         semaphore.signal()
     }
 
-    private static func parseRateLimitsLine(_ line: String) throws -> RateLimitsResponse? {
-        guard let lineData = line.data(using: .utf8),
-              let object = try JSONSerialization.jsonObject(with: lineData) as? [String: Any] else {
+    private static func parseRateLimitsLine(_ line: Data) throws -> RateLimitsResponse? {
+        guard let decodedLine = String(data: line, encoding: .utf8) else {
+            throw FetchError.invalidOutput
+        }
+        let trimmedLine = decodedLine.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedLine.isEmpty else {
             return nil
         }
 
-        guard stringID(object["id"]) == "2" else {
-            return nil
-        }
-
-        if let errorObject = object["error"] as? [String: Any] {
-            throw FetchError.appServerError(safeServerErrorDescription(errorObject))
-        }
-
-        guard let result = object["result"] else {
+        let object: Any
+        do {
+            object = try JSONSerialization.jsonObject(
+                with: Data(trimmedLine.utf8),
+                options: [.fragmentsAllowed]
+            )
+        } catch {
             throw FetchError.invalidOutput
         }
 
-        let resultData = try JSONSerialization.data(withJSONObject: result)
-        return try JSONDecoder().decode(RateLimitsResponse.self, from: resultData)
+        guard let envelope = object as? [String: Any] else {
+            return nil
+        }
+        guard stringID(envelope["id"]) == "2" else {
+            return nil
+        }
+
+        if let errorObject = envelope["error"] as? [String: Any] {
+            throw FetchError.appServerError(safeServerErrorDescription(errorObject))
+        }
+
+        // Restrict the value to a JSON object before passing it to JSONSerialization.
+        // Null and scalar results are controlled protocol errors, not Foundation exceptions.
+        guard let result = envelope["result"] as? [String: Any] else {
+            throw FetchError.invalidOutput
+        }
+
+        do {
+            let resultData = try JSONSerialization.data(withJSONObject: result)
+            return try JSONDecoder().decode(RateLimitsResponse.self, from: resultData)
+        } catch {
+            throw FetchError.invalidOutput
+        }
     }
 
     private static func safeServerErrorDescription(_ errorObject: [String: Any]) -> String? {
@@ -226,9 +324,125 @@ final class ResponseBox: @unchecked Sendable {
     }
 }
 
+final class ProcessDiagnosticCapture: @unchecked Sendable {
+    private enum Category {
+        case authentication
+        case initialization
+    }
+
+    private static let patterns: [(category: Category, text: String)] = [
+        (.authentication, "not signed"),
+        (.authentication, "sign in"),
+        (.authentication, "unauthorized"),
+        (.authentication, "authentication"),
+        (.initialization, "permission"),
+        (.initialization, "operation not permitted"),
+        (.initialization, "could not initialize"),
+        (.initialization, "failed to initialize")
+    ]
+
+    static let maximumRetainedBytes = max(
+        0,
+        (patterns.map { $0.text.utf8.count }.max() ?? 1) - 1
+    )
+
+    private let lock = NSLock()
+    private var overlap: [UInt8] = []
+    private var foundAuthentication = false
+    private var foundInitialization = false
+
+    var retainedByteCount: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return overlap.count
+    }
+
+    func append(_ data: Data) {
+        guard !data.isEmpty else {
+            return
+        }
+
+        lock.lock()
+        defer { lock.unlock() }
+
+        var searchable = overlap
+        searchable.reserveCapacity(overlap.count + data.count)
+        searchable.append(contentsOf: data)
+        let searchableText = String(decoding: searchable, as: UTF8.self).lowercased()
+
+        for pattern in Self.patterns where searchableText.contains(pattern.text) {
+            switch pattern.category {
+            case .authentication:
+                foundAuthentication = true
+            case .initialization:
+                foundInitialization = true
+            }
+        }
+
+        overlap = Array(searchable.suffix(Self.maximumRetainedBytes))
+    }
+
+    func safeDescription() -> String? {
+        lock.lock()
+        defer { lock.unlock() }
+
+        if foundAuthentication {
+            return "Codex is not signed in. Open Codex and sign in, then refresh."
+        }
+        if foundInitialization {
+            return "Codex could not initialize its local runtime. Open Codex once, then refresh."
+        }
+        return nil
+    }
+
+}
+
+private final class ProcessCompletion: @unchecked Sendable {
+    private let lock = NSLock()
+    private let semaphore = DispatchSemaphore(value: 0)
+    private var finished = false
+
+    func markFinished() {
+        lock.lock()
+        guard !finished else {
+            lock.unlock()
+            return
+        }
+        finished = true
+        lock.unlock()
+        semaphore.signal()
+    }
+
+    func wait(timeout: DispatchTime) -> DispatchTimeoutResult {
+        semaphore.wait(timeout: timeout)
+    }
+}
+
+private final class PipeEndOfFile: @unchecked Sendable {
+    private let lock = NSLock()
+    private let semaphore = DispatchSemaphore(value: 0)
+    private var reached = false
+
+    func markReached() {
+        lock.lock()
+        guard !reached else {
+            lock.unlock()
+            return
+        }
+        reached = true
+        lock.unlock()
+        semaphore.signal()
+    }
+
+    func wait(timeout: DispatchTime) -> DispatchTimeoutResult {
+        semaphore.wait(timeout: timeout)
+    }
+}
+
 enum FetchError: LocalizedError {
     case codexNotFound([String])
     case appServerLaunchFailed
+    case appServerCommunicationFailed
     case timeout
     case appServerExited(Int, String?)
     case appServerError(String?)
@@ -242,6 +456,8 @@ enum FetchError: LocalizedError {
             return "Codex app-server executable was not found. Checked: \(checkedPaths). Open Codex once or set CODEX_BIN for a custom install."
         case .appServerLaunchFailed:
             return "Codex app-server could not be launched. Check the Codex installation and try again."
+        case .appServerCommunicationFailed:
+            return "Codex app-server communication failed. Open Codex and try again."
         case .timeout:
             return "Codex app-server did not respond within 20 seconds. Open Codex and check that it is signed in and online."
         case .appServerExited(let status, let detail):

@@ -7,7 +7,29 @@ on:
       - "v*"
 
 jobs:
+  test:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: npm test
+      - name: Native integration tests
+        if: always()
+        run: npm run test:native
+      - name: SwiftPM XCTest suite
+        run: npm run test:swiftpm
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: native-test-logs
+          path: ${{ runner.temp }}/codex-usage-native.*/*.log
+          if-no-files-found: ignore
+          retention-days: 7
+
   package:
+    needs: test
     runs-on: macos-15
     strategy:
       matrix:
@@ -17,7 +39,6 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-      - run: npm test
       - run: npm run package:macos
         env:
           BUILD_ARCH: ${{ matrix.arch }}
