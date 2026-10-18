@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DIST_DIR="$ROOT_DIR/dist"
 APP_DIR="$DIST_DIR/Codex Usage Status.app"
-VERSION="${VERSION:-0.1.2}"
+VERSION="${VERSION:-0.1.3}"
 
 detect_hardware_arch() {
   local machine
@@ -37,7 +37,7 @@ ZIP_PATH="$DIST_DIR/$ZIP_NAME"
 DMG_NAME="CodexUsageStatus-${VERSION}-macos-${BUILD_ARCH}.dmg"
 DMG_PATH="$DIST_DIR/$DMG_NAME"
 
-"$ROOT_DIR/scripts/build-macos-app.sh" >/dev/null
+BUILD_ARCH="$BUILD_ARCH" VERSION="$VERSION" "$ROOT_DIR/scripts/build-macos-app.sh" >/dev/null
 
 rm -f "$DIST_DIR"/CodexUsageStatus-"$VERSION"-macos-*.zip "$DIST_DIR/SHA256SUMS.txt"
 ditto -c -k --sequesterRsrc --keepParent "$APP_DIR" "$ZIP_PATH"
