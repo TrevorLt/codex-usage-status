@@ -290,7 +290,6 @@ enum UsageBadgeRenderer {
         if warningOverlay {
             guard let percent = value.percent, percent < 20 else { return }
             drawWarningArc(percent: percent, center: ringCenter, color: .systemRed)
-            drawText(value.centerText, center: ringCenter, yOffset: -5.5, fontSize: value.centerText.count >= 3 ? 7.4 : 9.0, weight: .bold, alpha: 1, foregroundColor: .systemRed)
             return
         }
 
@@ -337,19 +336,20 @@ enum UsageBadgeRenderer {
             ring.stroke()
         }
 
-        if !isWarning {
-            drawText(value.centerText, center: center, yOffset: -5.5, fontSize: value.centerText.count >= 3 ? 7.4 : 9.0, weight: .bold, alpha: 0.98, foregroundColor: foregroundColor)
-        }
+        drawText(value.centerText, center: center, yOffset: -5.5, fontSize: value.centerText.count >= 3 ? 7.4 : 9.0, weight: .bold, alpha: 0.98, foregroundColor: foregroundColor)
     }
 
     private static func drawWarningArc(percent: Int, center: NSPoint, color: NSColor) {
-        guard percent > 0 else { return }
+        // A zero-length progress arc would hide the warning entirely. At 0%, use
+        // a complete red ring while leaving the percentage text in the template layer.
+        let visiblePercent = percent == 0 ? 100 : max(0, min(100, percent))
+        guard visiblePercent > 0 else { return }
         let ring = NSBezierPath()
         ring.appendArc(
             withCenter: center,
             radius: 9.7,
             startAngle: 90,
-            endAngle: 90 - CGFloat(min(100, percent)) * 3.6,
+            endAngle: 90 - CGFloat(visiblePercent) * 3.6,
             clockwise: true
         )
         ring.lineWidth = 2.25
@@ -372,15 +372,12 @@ enum UsageBadgeRenderer {
 
         if warningOverlay {
             guard isWarning, let percent else { return }
-            drawString(value.centerText, in: numberRect, fontSize: value.centerText.count >= 3 ? 11.6 : 13.2, weight: .bold, alpha: 1, alignment: .left, foregroundColor: .systemRed)
             drawReadoutFill(percent: percent, lineRect: lineRect, color: .systemRed, alpha: 0.95)
             return
         }
 
         drawStackedLabel(value.label, in: labelRect, alpha: 0.62, foregroundColor: foregroundColor)
-        if !isWarning {
-            drawString(value.centerText, in: numberRect, fontSize: value.centerText.count >= 3 ? 11.6 : 13.2, weight: .bold, alpha: 0.96, alignment: .left, foregroundColor: foregroundColor)
-        }
+        drawString(value.centerText, in: numberRect, fontSize: value.centerText.count >= 3 ? 11.6 : 13.2, weight: .bold, alpha: 0.96, alignment: .left, foregroundColor: foregroundColor)
 
         let track = NSBezierPath(roundedRect: lineRect, xRadius: 0.7, yRadius: 0.7)
         foregroundColor.withAlphaComponent(0.14).setFill()

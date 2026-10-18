@@ -16,7 +16,7 @@ The menu-bar badge uses a compact side-labeled double-ring layout:
 - ring center number: remaining percentage
 - no capsule background, so it stays visually lightweight beside the other macOS status items
 
-The badge uses macOS's native menu-bar template tinting for neutral content. This lets it follow the surrounding status-bar contrast automatically instead of forcing a fixed light/dark color. When either remaining value falls below 20%, a separate system-red overlay marks that window, including at 0%; the remaining neutral content keeps native tinting. This applies to both display styles.
+The badge uses macOS's native menu-bar template tinting for neutral content. This lets it follow the surrounding status-bar contrast automatically instead of forcing a fixed light/dark color. When either remaining value falls below 20%, a separate system-red overlay marks only that window's ring or readout bar, including a complete warning ring at 0%; the percentage text and other neutral content keep native tinting. This applies to both display styles.
 
 The menu-bar badge is the primary interface. Clicking it exposes only the necessary actions: Refresh, Display Style, Settings, and Quit.
 
