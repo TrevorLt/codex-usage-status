@@ -18,7 +18,7 @@ The menu-bar badge uses a compact side-labeled double-ring layout:
 
 The badge uses macOS's native menu-bar template tinting for neutral content. This lets it follow the surrounding status-bar contrast automatically instead of forcing a fixed light/dark color. When either remaining value falls below 20%, a separate system-red overlay marks only that window's ring or readout bar, including a complete warning ring at 0%; the percentage text and other neutral content keep native tinting. This applies to both display styles.
 
-The menu-bar badge is the primary interface. Clicking it exposes only the necessary actions: Refresh, Display Style, Settings, and Quit.
+The menu-bar badge is the primary interface. Clicking it exposes only the necessary actions: Refresh, Display Style, Launch at Login, About, and Quit. Launch at Login is a checkable menu item backed by the app's per-user LaunchAgent.
 
 The repository also ships the selected 1B-M app icon in the bundle. It is intentionally separate from the live menu-bar badge: the app icon is a stable brand mark, while the menu-bar image remains a native template image that follows macOS status-bar contrast and carries the live 5H/7D readings. See [branding/README.md](branding/README.md) for the measured SVG source and icon validation.
 
@@ -75,9 +75,9 @@ See [PRIVACY.md](PRIVACY.md) for the user-facing privacy summary and [SECURITY.m
 
 You can also download the matching DMG for a standard macOS drag-to-install experience. Open the DMG and drag `Codex Usage Status` onto the `Applications` shortcut. The mounted disk uses the same 1B-M logo as its volume icon, and its Finder background is a multi-resolution 1x/2x TIFF so the charcoal/lavender layout stays sharp on Retina displays. It does not install background helpers or change unrelated system settings.
 
-The app is menu-bar-only, so it does not appear in the Dock. The bundle includes the 1B-M `CodexUsageStatus.icns` app icon, while its user-facing name is `Codex Usage Status`. To launch it automatically after login, add `Codex Usage Status.app` in macOS System Settings > General > Login Items, or manage it with a per-user LaunchAgent if you are maintaining a developer installation. The app uses a per-user instance lock so launching another installed copy does not create a second menu-bar monitor; the `--once` diagnostic remains available while the monitor runs.
+The app is menu-bar-only, so it does not appear in the Dock. The bundle includes the 1B-M `CodexUsageStatus.icns` app icon, while its user-facing name is `Codex Usage Status`. To launch it automatically after login, check Launch at Login directly in the menu bar; it manages a per-user LaunchAgent and preserves a custom `CODEX_BIN` setting when one already exists. The app uses a per-user instance lock so launching another installed copy does not create a second menu-bar monitor; the `--once` diagnostic remains available while the monitor runs.
 
-On its first refresh, the app automatically checks the legacy Codex layout, the current ChatGPT-bundled Codex CLI shim, the nested Codex app-server executable, and per-user `/Applications` locations. If none is executable, hover the red `?` badge or open Settings to see the checked locations and the next action.
+On its first refresh, the app automatically checks the legacy Codex layout, the current ChatGPT-bundled Codex CLI shim, the nested Codex app-server executable, and per-user `/Applications` locations. If none is executable, hover the red `?` badge or open About to see the checked locations and the next action.
 
 Unsigned GitHub builds may trigger macOS Gatekeeper warnings. For a public polished release, sign with an Apple Developer ID and notarize the app.
 
@@ -105,7 +105,7 @@ npm run build:macos
 npm run start:macos
 ```
 
-The build embeds the tracked `branding/CodexUsageStatus.icns` file in `Contents/Resources` and declares it in the generated `Info.plist`. `npm test` covers the optional CLI. `npm run test:native` runs policy/domain, path resolution, real subprocess faults, installer migration, sleep/wake recovery, and badge-rendering checks. It requires each harness's explicit PASS marker, not merely an exit code of zero. Account responses are fake; AppKit tests require a logged-in macOS graphical session. CI runs these tests before building or packaging.
+The build embeds the tracked `branding/CodexUsageStatus.icns` file in `Contents/Resources` and declares it in the generated `Info.plist`. `npm test` covers the optional CLI. `npm run test:native` runs policy/domain, path resolution, real subprocess faults, installer migration, login-item profile handling, sleep/wake recovery, and badge-rendering checks. It requires each harness's explicit PASS marker, not merely an exit code of zero. Account responses are fake; AppKit tests require a logged-in macOS graphical session. CI runs these tests before building or packaging.
 
 `npm run test:swiftpm` runs the XCTest suite when the selected developer toolchain includes XCTest. Its isolated temporary build also works around mismatched public/private PackageDescription interfaces left by some Command Line Tools upgrades without changing system files. The direct native harnesses remain the supported test entry point when a full Xcode test environment is unavailable. `node branding/verify-logo.mjs` is an optional developer geometry check that currently uses a local bundled `sharp` path; it is not a portable release gate.
 

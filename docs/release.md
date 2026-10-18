@@ -55,14 +55,14 @@ For a release DMG:
 1. Open the architecture-matched DMG.
 2. Drag `Codex Usage Status` to the `Applications` shortcut.
 3. Open `Codex Usage Status.app`.
-4. Optional: add it to macOS System Settings > General > Login Items.
+4. Open the menu-bar badge and check Launch at Login if desired.
 
 For a release ZIP:
 
 1. Download and unzip the release artifact.
 2. Move `Codex Usage Status.app` to `/Applications`.
 3. Open the app.
-4. Optional: add it to macOS System Settings > General > Login Items.
+4. Open the menu-bar badge and check Launch at Login if desired.
 
 The package contains the `CodexUsageStatus.icns` app and DMG volume icons. The menu-bar badge is still rendered separately as a native template image so it can follow macOS status-bar contrast and show the 5H/7D readings.
 

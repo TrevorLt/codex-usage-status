@@ -12,7 +12,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let displayStyleMenu = NSMenu()
     private let doubleRingItem = NSMenuItem(title: BadgeStyle.doubleRing.menuTitle, action: #selector(selectDoubleRingStyle), keyEquivalent: "")
     private let largeReadoutItem = NSMenuItem(title: BadgeStyle.largeReadout.menuTitle, action: #selector(selectLargeReadoutStyle), keyEquivalent: "")
-    private let settingsItem = NSMenuItem(title: "Settings...", action: #selector(showSettings), keyEquivalent: ",")
+    private let launchAtLoginItem = NSMenuItem(title: "Launch at Login", action: #selector(toggleLaunchAtLogin), keyEquivalent: "")
+    private let aboutItem = NSMenuItem(title: "About", action: #selector(showAbout), keyEquivalent: ",")
+    private let loginItemController = LoginItemController()
 
     private var timer: Timer?
     private var displayValidityTimer: Timer?
@@ -71,8 +73,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(displayStyleItem)
         updateStyleMenuState()
 
-        settingsItem.target = self
-        menu.addItem(settingsItem)
+        launchAtLoginItem.target = self
+        menu.addItem(launchAtLoginItem)
+        updateLaunchAtLoginMenuState()
+
+        menu.addItem(.separator())
+
+        aboutItem.target = self
+        menu.addItem(aboutItem)
 
         menu.addItem(.separator())
 
@@ -112,6 +120,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     func menuWillOpen(_ menu: NSMenu) {
         renderCurrentBadge()
+        updateLaunchAtLoginMenuState()
     }
 
     @objc private func systemWillSleep() {
@@ -166,7 +175,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         setBadgeStyle(.largeReadout)
     }
 
-    @objc private func showSettings() {
+    @objc private func toggleLaunchAtLogin() {
+        let shouldEnable = launchAtLoginItem.state != .on
+        do {
+            try loginItemController.setEnabled(shouldEnable)
+            updateLaunchAtLoginMenuState()
+        } catch {
+            let alert = NSAlert()
+            alert.messageText = "Launch at Login"
+            alert.informativeText = error.localizedDescription
+            alert.addButton(withTitle: "OK")
+            alert.runModal()
+            updateLaunchAtLoginMenuState()
+        }
+    }
+
+    @objc private func showAbout() {
         var status: String
         if let lastUsage {
             status = lastUsage.tooltip(formatter: dateFormatter)
@@ -194,7 +218,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         """
 
         let alert = NSAlert()
-        alert.messageText = "Codex Usage Status"
+        alert.messageText = "About Codex Usage Status"
         alert.informativeText = message
         alert.addButton(withTitle: "OK")
         alert.runModal()
@@ -213,6 +237,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func updateStyleMenuState() {
         doubleRingItem.state = badgeStyle == .doubleRing ? .on : .off
         largeReadoutItem.state = badgeStyle == .largeReadout ? .on : .off
+    }
+
+    private func updateLaunchAtLoginMenuState() {
+        launchAtLoginItem.state = loginItemController.isEnabled ? .on : .off
     }
 
     private func refresh(manual: Bool = false) {

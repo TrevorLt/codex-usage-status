@@ -59,6 +59,7 @@ run_harness 'path-resolution' 'test-codex-path-resolution.sh' '^PATH RESOLVER PA
 run_harness 'fetcher-lifecycle' 'test-fetcher-lifecycle.sh' '^FETCHER LIFECYCLE PASS$'
 run_harness 'native-faults' 'test-native-faults.sh' '^NATIVE FAULTS PASS([[:space:]]|$)'
 run_harness 'install-migration' 'test-install-migration.sh' '^INSTALL MIGRATION PASS([[:space:]:]|$)'
+run_harness 'login-item' 'test-login-item.sh' '^LOGIN ITEM PASS([[:space:]:]|$)'
 run_harness 'wake-recovery' 'test-wake-recovery.sh' '^WAKE RECOVERY INTEGRATION PASS([[:space:]]|$)' true
 run_harness 'badge-rendering' 'test-badge-rendering.sh' '^BADGE RENDERING PASS([[:space:]:]|$)' true
 
@@ -67,4 +68,4 @@ if [[ "$failures" -ne 0 ]]; then
   exit 1
 fi
 
-printf '\nNATIVE TEST SUITE PASS (7 harnesses; logs: %s)\n' "$log_dir"
+printf '\nNATIVE TEST SUITE PASS (8 harnesses; logs: %s)\n' "$log_dir"

@@ -1,6 +1,6 @@
 # Failure diagnostics
 
-The menu-bar `?` badge means the latest refresh did not produce a usable usage snapshot. It is intentionally a compact error indicator; the tooltip and Settings panel contain the actionable reason.
+The menu-bar `?` badge means the latest refresh did not produce a usable usage snapshot. It is intentionally a compact error indicator; the tooltip and About panel contain the actionable reason.
 
 ## Failure matrix
 
@@ -37,7 +37,7 @@ When opening an issue, include only:
 
 - CodexUsageStatus version and selected architecture.
 - macOS version and whether Codex is installed as `Codex.app` or `ChatGPT.app`.
-- The safe message shown in Settings.
+- The safe message shown in About.
 - Whether the official Codex app is open and signed in.
 
 Never include `~/.codex/auth.json`, cookies, access tokens, API keys, raw JSON-RPC output, or usage screenshots containing account information.

@@ -7,7 +7,7 @@
 
 本文的研究记录是在本地修复落地前生成的；后文关于“未提交、尚未验证”的描述是研究时点的状态，不是当前工作树的最终验证结论。
 
-“问号”不能单独证明是 Codex 路径错误。按 CodexUsageStatus 当前 UI 实现，如果还没有成功读取过额度，且最近一次刷新失败，状态栏显示错误图标；若已有成功数据，刷新失败会保留旧数字并标为陈旧。因此，新用户安装后持续看到问号，能确认的是“这个进程还没有拿到可用额度”，具体原因仍需查看 Settings 中的错误文本。
+“问号”不能单独证明是 Codex 路径错误。按 CodexUsageStatus 当前 UI 实现，如果还没有成功读取过额度，且最近一次刷新失败，状态栏显示错误图标；若已有成功数据，刷新失败会保留旧数字并标为陈旧。因此，新用户安装后持续看到问号，能确认的是“这个进程还没有拿到可用额度”，具体原因仍需查看 About 中的错误文本。
 
 不过路径错误是 v0.1.1 的首要候选：该 release 的源码把 Codex 可执行文件固定为 `/Applications/Codex.app/Contents/Resources/codex`。OpenAI 的公开 macOS issue 记录了 ChatGPT.app 安装、从旧 `Resources/codex` 迁移到 `Resources/codex-cli/bin/codex`、以及 CLI 内层 bundle 可执行文件等布局变化。另有公开复现证明，Codex CLI 未登录时 `account/rateLimits/read` 会返回认证错误；若客户端把该错误折叠成普通刷新失败，用户也只会看到问号。
 
@@ -29,7 +29,7 @@
 
 1. 最近一次成功值保存在进程内的 `lastUsage`；成功读取时更新，失败时不清除。
 2. 已有成功值但刷新失败时，数字继续显示为最后已知读数并标陈旧，tooltip 包含上次成功读取时间与最近错误。
-3. 没有成功值但存在 `lastError` 时，状态栏使用错误图标；tooltip 给出错误文本。菜单的 Settings 也显示最近错误、最近成功时间和下次刷新时间。
+3. 没有成功值但存在 `lastError` 时，状态栏使用错误图标；tooltip 给出错误文本。菜单的 About 也显示最近错误、最近成功时间和下次刷新时间。
 4. 没有成功值且尚无错误时显示等待首刷的 placeholder。
 5. 重启会丢失内存中的 `lastUsage`。release notes 与 [wake/cache strategy](wake-cache-strategy.md) 说明刻意不持久化额度快照，原因是当前展示模型没有可用于验证账号归属的可靠身份字段；旧快照可能在用户切换账号后误显示。
 
@@ -97,12 +97,12 @@ Apple 的 `NSWorkspace.urlForApplication(withBundleIdentifier:)` 会返回指定
 3. **子进程快速退出、协议/schema 不匹配或本机网络失败：仍可能。** v0.1.1 的 timeout/error 文案不足以从图标区分。
 4. **主应用 Gatekeeper/整个 app 架构错误：相对较低。** 若菜单图标已出现，主 app 至少已启动；这不能排除内嵌 CLI 的架构/信任问题。
 
-要把根因定到一个 case，只需让用户在图标菜单中打开 `Settings...`，提供其中 `Last refresh failed` 的错误句子、Codex Desktop 的 About 版本、Mac 是 Apple Silicon 还是 Intel、以及 Codex.app/ChatGPT.app 的安装名/位置。无需截图账号、终端环境、日志全文或任何认证数据；不要索要/读取 auth 文件、cookie、token/API key。若 Settings 没有错误文字，应记录为 UI 可见性问题，而不是据问号猜路径。
+要把根因定到一个 case，只需让用户在图标菜单中打开 `About`，提供其中 `Last refresh failed` 的错误句子、Codex Desktop 的 About 版本、Mac 是 Apple Silicon 还是 Intel、以及 Codex.app/ChatGPT.app 的安装名/位置。无需截图账号、终端环境、日志全文或任何认证数据；不要索要/读取 auth 文件、cookie、token/API key。若 About 没有错误文字，应记录为 UI 可见性问题，而不是据问号猜路径。
 
 ## 尚未知项
 
 - 下载者实际使用的 release ZIP 架构、Mac CPU、Codex Desktop 版本与 app bundle 路径。
-- 该用户 Settings 中的真实 fetch error，以及对应 app-server 的安全错误类别/退出状态。
+- 该用户 About 中的真实 fetch error，以及对应 app-server 的安全错误类别/退出状态。
 - 用户的 Codex CLI 是否已登录、GUI app 与子进程是否继承相同的非敏感环境配置；本研究未检查其本机认证状态。
 - OpenAI 是否承诺任何 bundle 内 CLI 路径、`account/rateLimits/read` 的长期第三方兼容性或后端 freshness 上限。当前公开源码/issue 可证实实现细节和变化案例，不能替代稳定 API 保证。
 - CodexBar/Claude 类竞品在同等机器和负载下的真实耗电、CPU、endpoint freshness 与总体成功率；公开资料没有统一基准。

@@ -31,7 +31,7 @@ The default menu-bar display is a side-labeled double-ring badge.
 
 The left ring group represents the 5-hour window and the right ring group represents the 7-day weekly window. Each label sits beside its own ring rather than inside the ring, so the ring center only has to carry the remaining percentage number. The `5H` and `7D` labels are stacked into matching two-character micro-labels for visual balance. The badge intentionally avoids a capsule background so it feels like a native lightweight menu-bar status item instead of a separate floating control.
 
-This keeps the menu-bar footprint narrow while making the two quota windows visually distinct. The click menu is intentionally minimal: Refresh, Settings, and Quit.
+This keeps the menu-bar footprint narrow while making the two quota windows visually distinct. The click menu is intentionally minimal: Refresh, Display Style, Launch at Login, About, and Quit.
 
 The optional Large Readout style is designed for readability. It uses larger monospaced numbers as the primary visual layer, keeps `5H` / `7D` as weak labels, and moves status expression into subtle bottom lines. It also avoids the capsule background.
 
