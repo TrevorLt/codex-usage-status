@@ -24,7 +24,13 @@ CodexUsageStatus is a small, read-only macOS menu-bar app for showing Codex 5-ho
 
 These public artifacts are ad-hoc signed and are not notarized with an Apple Developer ID certificate. macOS Gatekeeper may therefore require the user to approve the app once through the normal Open confirmation flow. No global Gatekeeper bypass is required or recommended.
 
-After copying `CodexUsageStatus.app` to `/Applications`, open the app once and enable Launch at Login from its menu if desired.
+## Download guide
+
+1. Choose `arm64` for Apple Silicon Macs (M1/M2/M3/M4 and newer), or `x86_64` for Intel Macs.
+2. Download the matching ZIP, unzip it, and move `CodexUsageStatus.app` to `/Applications`.
+3. Open the app. If macOS shows its normal Gatekeeper confirmation, choose Open after checking that the app came from this repository.
+4. Open the menu-bar badge and enable Launch at Login if desired; this is the first release with the in-app toggle.
+5. Use `SHA256SUMS.txt` to verify the downloaded ZIP before opening it.
 
 ## Credit
 

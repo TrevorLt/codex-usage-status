@@ -11,6 +11,7 @@ swiftc -swift-version 6 -sdk "$sdk_path" -target "$(uname -m)-apple-macosx13.0" 
   -module-cache-path "${CODEX_USAGE_TEST_MODULE_CACHE:-$wake_test_dir/module-cache}" \
   "$source_root/App/AppDelegate.swift" \
   "$source_root/App/Configuration.swift" \
+  "$source_root/App/LoginItemController.swift" \
   "$source_root/App/RefreshPolicy.swift" \
   "$source_root/Domain/UsageModels.swift" \
   "$source_root/UI/UsageBadgeRenderer.swift" \

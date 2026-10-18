@@ -29,6 +29,14 @@ The v0.1.1 release only checked `/Applications/Codex.app/Contents/Resources/code
 - arm64 and x86_64 app bundles build and strict ad-hoc signature verification passes.
 - arm64 and x86_64 ZIP and DMG checksums, disk-image verification, and installer payload checks pass.
 
+## Download guide
+
+1. Choose `arm64` for Apple Silicon Macs (M1/M2/M3/M4 and newer), or `x86_64` for Intel Macs.
+2. Recommended: download the matching DMG, open it, and drag `Codex Usage Status.app` to the `Applications` shortcut.
+3. Alternative: download the matching ZIP, unzip it, and move `Codex Usage Status.app` to `/Applications`.
+4. Open the app. If macOS shows its normal Gatekeeper confirmation, choose Open after checking that the app came from this repository.
+5. Open the menu-bar badge and enable Launch at Login if desired. Verify the matching ZIP/DMG with `SHA256SUMS.txt`.
+
 ## Credit
 
 This is an independent continuation based on [tollenceld/codex-usage-status](https://github.com/tollenceld/codex-usage-status), originally created by [@tollenceld](https://github.com/tollenceld). The original project and MIT license remain credited.
