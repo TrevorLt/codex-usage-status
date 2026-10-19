@@ -197,7 +197,7 @@ enum UsageBadgeRenderer {
             rect.fill()
 
             if !warningOverlay {
-                drawDivider(isStale: isStale, foregroundColor: foregroundColor)
+                drawDivider(foregroundColor: foregroundColor)
             }
 
             drawLabeledRing(
@@ -206,6 +206,7 @@ enum UsageBadgeRenderer {
                 ringCenter: NSPoint(x: 29, y: 12),
                 foregroundColor: foregroundColor,
                 forcedColor: forcedColor,
+                isStale: isStale,
                 warningOverlay: warningOverlay
             )
             drawLabeledRing(
@@ -214,6 +215,7 @@ enum UsageBadgeRenderer {
                 ringCenter: NSPoint(x: 75, y: 12),
                 foregroundColor: foregroundColor,
                 forcedColor: forcedColor,
+                isStale: isStale,
                 warningOverlay: warningOverlay
             )
         }
@@ -241,7 +243,7 @@ enum UsageBadgeRenderer {
             rect.fill()
 
             if !warningOverlay {
-                drawDivider(isStale: isStale, foregroundColor: foregroundColor)
+                drawDivider(foregroundColor: foregroundColor)
             }
 
             drawReadoutGroup(
@@ -251,6 +253,7 @@ enum UsageBadgeRenderer {
                 lineRect: NSRect(x: 1, y: 2.4, width: 36, height: 1.5),
                 foregroundColor: foregroundColor,
                 forcedColor: forcedColor,
+                isStale: isStale,
                 warningOverlay: warningOverlay
             )
             drawReadoutGroup(
@@ -260,6 +263,7 @@ enum UsageBadgeRenderer {
                 lineRect: NSRect(x: 48, y: 2.4, width: 36, height: 1.5),
                 foregroundColor: foregroundColor,
                 forcedColor: forcedColor,
+                isStale: isStale,
                 warningOverlay: warningOverlay
             )
         }
@@ -268,15 +272,11 @@ enum UsageBadgeRenderer {
         return image
     }
 
-    private static func drawDivider(isStale: Bool, foregroundColor: NSColor) {
-        if isStale {
-            drawString("~", in: NSRect(x: 39, y: 6, width: 8, height: 12), fontSize: 10, weight: .semibold, alpha: 0.65, alignment: .center, foregroundColor: foregroundColor)
-        } else {
-            let divider = NSBezierPath()
-            divider.appendArc(withCenter: NSPoint(x: 43, y: 12), radius: 1, startAngle: 0, endAngle: 360)
-            foregroundColor.withAlphaComponent(0.25).setFill()
-            divider.fill()
-        }
+    private static func drawDivider(foregroundColor: NSColor) {
+        let divider = NSBezierPath()
+        divider.appendArc(withCenter: NSPoint(x: 43, y: 12), radius: 1, startAngle: 0, endAngle: 360)
+        foregroundColor.withAlphaComponent(0.25).setFill()
+        divider.fill()
     }
 
     private static func drawLabeledRing(
@@ -285,6 +285,7 @@ enum UsageBadgeRenderer {
         ringCenter: NSPoint,
         foregroundColor: NSColor,
         forcedColor: NSColor?,
+        isStale: Bool,
         warningOverlay: Bool
     ) {
         if warningOverlay {
@@ -299,7 +300,8 @@ enum UsageBadgeRenderer {
             center: ringCenter,
             foregroundColor: foregroundColor,
             forcedColor: forcedColor,
-            suppressWarningContent: forcedColor == nil
+            suppressWarningContent: forcedColor == nil,
+            isStale: isStale
         )
     }
 
@@ -308,7 +310,8 @@ enum UsageBadgeRenderer {
         center: NSPoint,
         foregroundColor: NSColor,
         forcedColor: NSColor?,
-        suppressWarningContent: Bool
+        suppressWarningContent: Bool,
+        isStale: Bool
     ) {
         let radius: CGFloat = 9.7
         let lineWidth: CGFloat = 2.25
@@ -336,7 +339,15 @@ enum UsageBadgeRenderer {
             ring.stroke()
         }
 
-        drawText(value.centerText, center: center, yOffset: -5.5, fontSize: value.centerText.count >= 3 ? 7.4 : 9.0, weight: .bold, alpha: 0.98, foregroundColor: foregroundColor)
+        drawText(
+            readingText(for: value, isStale: isStale),
+            center: center,
+            yOffset: -5.5,
+            fontSize: ringFontSize(for: value, isStale: isStale),
+            weight: .bold,
+            alpha: 0.98,
+            foregroundColor: foregroundColor
+        )
     }
 
     private static func drawWarningArc(percent: Int, center: NSPoint, color: NSColor) {
@@ -365,6 +376,7 @@ enum UsageBadgeRenderer {
         lineRect: NSRect,
         foregroundColor: NSColor,
         forcedColor: NSColor?,
+        isStale: Bool,
         warningOverlay: Bool
     ) {
         let percent = value.percent.map { max(0, min(100, $0)) }
@@ -377,7 +389,15 @@ enum UsageBadgeRenderer {
         }
 
         drawStackedLabel(value.label, in: labelRect, alpha: 0.62, foregroundColor: foregroundColor)
-        drawString(value.centerText, in: numberRect, fontSize: value.centerText.count >= 3 ? 11.6 : 13.2, weight: .bold, alpha: 0.96, alignment: .left, foregroundColor: foregroundColor)
+        drawString(
+            readingText(for: value, isStale: isStale),
+            in: numberRect,
+            fontSize: readoutFontSize(for: value, isStale: isStale),
+            weight: .bold,
+            alpha: 0.96,
+            alignment: .left,
+            foregroundColor: foregroundColor
+        )
 
         let track = NSBezierPath(roundedRect: lineRect, xRadius: 0.7, yRadius: 0.7)
         foregroundColor.withAlphaComponent(0.14).setFill()
@@ -465,6 +485,27 @@ enum UsageBadgeRenderer {
             .paragraphStyle: style,
         ]
         text.draw(in: rect, withAttributes: attributes)
+    }
+
+    private static func readingText(for value: BadgeValue, isStale: Bool) -> String {
+        guard isStale, value.percent != nil, value.overrideText == nil else {
+            return value.centerText
+        }
+        return "~\(value.centerText)"
+    }
+
+    private static func ringFontSize(for value: BadgeValue, isStale: Bool) -> CGFloat {
+        guard isStale, value.percent != nil, value.overrideText == nil else {
+            return value.centerText.count >= 3 ? 7.4 : 9.0
+        }
+        return value.centerText.count >= 3 ? 6.7 : 7.8
+    }
+
+    private static func readoutFontSize(for value: BadgeValue, isStale: Bool) -> CGFloat {
+        guard isStale, value.percent != nil, value.overrideText == nil else {
+            return value.centerText.count >= 3 ? 11.6 : 13.2
+        }
+        return value.centerText.count >= 3 ? 9.8 : 10.8
     }
 
     private static var centeredParagraphStyle: NSParagraphStyle {
