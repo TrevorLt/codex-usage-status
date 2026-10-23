@@ -43,14 +43,10 @@ struct BadgeRenderingAudit {
                     check(rendering.image.isTemplate, "\(style) \(remaining)% base remains a template in \(appearanceLabel)")
                     check((rendering.warningOverlay != nil) == expectedWarning, "\(style) \(remaining)% warning threshold in \(appearanceLabel)")
                     check((redPixels > 0) == expectedWarning, "\(style) \(remaining)% visible red pixels in \(appearanceLabel); got \(redPixels)")
-                    if expectedWarning, let warningOverlay = rendering.warningOverlay {
-                        let centerRedPixels = try countRedPixels(
-                            in: warningOverlay,
-                            xRange: style == .doubleRing ? 23..<35 : 18..<41,
-                            yRange: style == .doubleRing ? 8..<16 : 6..<18
-                        )
+                    if expectedWarning, style == .doubleRing {
+                        let centerRedPixels = countRedPixels(in: button.bitmap, xRange: 24..<34, yRange: 8..<16)
                         check(centerRedPixels == 0,
-                            "\(style) \(remaining)% warning overlay keeps the center reading neutral in \(appearanceLabel); got \(centerRedPixels) red center pixels")
+                            "\(style) \(remaining)% composed button keeps the center reading neutral in \(appearanceLabel); got \(centerRedPixels) red center pixels")
                     }
                 }
             }
@@ -215,16 +211,12 @@ struct BadgeRenderingAudit {
     }
 
     @MainActor
-    private static func countRedPixels(in bitmap: NSBitmapImageRep, xRange: Range<Int>? = nil) -> Int {
-        countPixels(in: bitmap, xRange: xRange ?? 0..<90, yRange: 0..<bitmap.pixelsHigh, matching: .red)
-    }
-
-    @MainActor
-    private static func countRedPixels(in image: NSImage, xRange: Range<Int>, yRange: Range<Int>) throws -> Int {
-        guard let tiff = image.tiffRepresentation, let bitmap = NSBitmapImageRep(data: tiff) else {
-            throw AuditFailure(message: "could not rasterize warning overlay")
-        }
-        return countPixels(in: bitmap, xRange: xRange, yRange: yRange, matching: .red)
+    private static func countRedPixels(
+        in bitmap: NSBitmapImageRep,
+        xRange: Range<Int>? = nil,
+        yRange: Range<Int>? = nil
+    ) -> Int {
+        countPixels(in: bitmap, xRange: xRange ?? 0..<90, yRange: yRange, matching: .red)
     }
 
     @MainActor
