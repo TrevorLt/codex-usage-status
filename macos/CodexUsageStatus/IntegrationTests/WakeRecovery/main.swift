@@ -4,6 +4,10 @@ import Foundation
 // Drives real AppDelegate, renderer, policy and models. Only the fetcher is fake.
 // Workspace notifications below stay in this test process; the Mac never sleeps.
 let app = NSApplication.shared
+guard app.setActivationPolicy(.accessory) else {
+    fputs("FAIL: wake-recovery requires an accessory app in the logged-in GUI session; a command-line process cannot create its real status item.\n", stderr)
+    exit(2)
+}
 MainActor.assumeIsolated {
     let delegate = AppDelegate(monotonicNow: { CodexUsageFetcher.uptime })
     app.delegate = delegate
