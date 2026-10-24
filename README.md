@@ -2,7 +2,11 @@
 
 An independent macOS menu-bar companion for showing Codex usage at a glance.
 
-![Codex Usage Status current menu-bar badge](docs/assets/menu-bar-badge-current.png)
+| **Double Ring** (default) | **Large Readout** |
+|:---:|:---:|
+| ![Double Ring mode with circular quota indicators](docs/assets/menu-bar-badge-double-ring.png) | ![Large Readout mode with labeled quota bars](docs/assets/menu-bar-badge-large-readout.png) |
+
+Switch between the two modes from the badge's **Display Style** menu.
 
 This repository is an independent continuation based on [tollenceld/codex-usage-status](https://github.com/tollenceld/codex-usage-status), originally created by [@tollenceld](https://github.com/tollenceld). The original project and its MIT license remain credited; this repository is maintained independently.
 
