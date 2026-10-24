@@ -1,190 +1,201 @@
 # Codex Usage Status
 
-An independent macOS menu-bar companion for showing Codex usage at a glance.
+[![CI](https://github.com/TrevorLt/codex-usage-status/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/TrevorLt/codex-usage-status/actions/workflows/ci.yml)
+[![Latest release](https://img.shields.io/github/v/release/TrevorLt/codex-usage-status?display_name=tag&sort=semver)](https://github.com/TrevorLt/codex-usage-status/releases/latest)
+[![License](https://img.shields.io/github/license/TrevorLt/codex-usage-status)](LICENSE)
 
-![Codex Usage Status current menu-bar badge](docs/assets/menu-bar-badge-current.png)
+A small, read-only macOS menu-bar companion for seeing Codex 5-hour and weekly usage without opening Codex.
+
+| **Double Ring** (default) | **Large Readout** |
+|:---:|:---:|
+| ![Double Ring mode with circular quota indicators](docs/assets/menu-bar-badge-double-ring.png) | ![Large Readout mode with labeled quota bars](docs/assets/menu-bar-badge-large-readout.png) |
+
+Switch between the two modes from the badge's **Display Style** menu.
 
 This repository is an independent continuation based on [tollenceld/codex-usage-status](https://github.com/tollenceld/codex-usage-status), originally created by [@tollenceld](https://github.com/tollenceld). The original project and its MIT license remain credited; this repository is maintained independently.
 
-## Current design
+## At a glance
 
-The menu-bar badge uses a compact side-labeled double-ring layout:
+| | Details |
+| --- | --- |
+| Platform | macOS 13 or later |
+| Architectures | Apple Silicon (`arm64`) and Intel (`x86_64`) |
+| Data source | The official local Codex app-server |
+| Protocol | Read-only `account/rateLimits/read` request |
+| Automatic refresh | Adaptive 30 / 60 / 120 seconds |
+| Failure retry | 300 seconds |
+| Published release | [`v0.1.3`](https://github.com/TrevorLt/codex-usage-status/releases/tag/v0.1.3) |
+| License | [MIT](LICENSE) |
 
-- left ring group: 5-hour remaining percentage (`5H`)
-- right ring group: weekly / 7-day remaining percentage (`7D`)
-- ring progress: remaining quota status
-- ring center number: remaining percentage
-- no capsule background, so it stays visually lightweight beside the other macOS status items
+## What it does
 
-The badge uses macOS's native menu-bar template tinting for neutral content. This lets it follow the surrounding status-bar contrast automatically instead of forcing a fixed light/dark color. When either remaining value falls below 20%, a separate system-red overlay marks only that window's ring or readout bar, including a complete warning ring at 0%; the percentage text and other neutral content keep native tinting. This applies to both display styles.
+- Shows 5-hour (`5H`) and weekly / 7-day (`7D`) remaining percentages in the menu bar.
+- Uses macOS template tinting so neutral content follows the surrounding status-bar contrast.
+- Turns only the low-usage ring or readout bar red below 20%; the percentage text remains readable.
+- Marks last-known readings with a neutral `~` directly beside each cached percentage.
+- Refreshes adaptively while keeping a hard 30-second minimum between automatic requests.
+- Recovers after sleep, display wake, and network recovery without duplicating requests.
+- Provides a checkable Launch at Login menu item and a live `Next refresh` countdown in About.
+- Includes a branded app icon and Retina-ready DMG packaging.
 
-The menu-bar badge is the primary interface. Clicking it exposes only the necessary actions: Refresh, Display Style, Launch at Login, About, and Quit. Launch at Login is a checkable menu item backed by the app's per-user LaunchAgent.
+The app is intentionally a monitor, not an account manager. It cannot log in, switch accounts, change limits, buy credits, or bypass usage limits.
 
-The repository also ships the selected 1B-M app icon in the bundle. It is intentionally separate from the live menu-bar badge: the app icon is a stable brand mark, while the menu-bar image remains a native template image that follows macOS status-bar contrast and carries the live 5H/7D readings. See [branding/README.md](branding/README.md) for the measured SVG source and icon validation.
+## Download and install
 
-Double Ring is the default display style. A larger accessibility-oriented style is available from Display Style > Large Readout. Large Readout keeps both values visible while prioritizing larger readable numbers with weak `5H` / `7D` labels and thin status lines.
+The latest published release is [`v0.1.3`](https://github.com/TrevorLt/codex-usage-status/releases/tag/v0.1.3). Download the artifact matching your Mac:
 
-## Adaptive refresh
+- Apple Silicon: `CodexUsageStatus-0.1.3-macos-arm64.dmg` or `.zip`
+- Intel: `CodexUsageStatus-0.1.3-macos-x86_64.dmg` or `.zip`
 
-The app uses a conservative adaptive schedule so active usage is detected quickly without polling continuously:
+### DMG
 
-- startup and activity: refresh every 30 seconds; any valid raw usage change or detected window cycle rebuilds the activity baseline
-- quiet for 90 seconds: refresh every 60 seconds
-- quiet for 5 minutes: refresh every 120 seconds; normal adaptive polling stops backing off here
-- failed request: retry after 300 seconds
-- manual refresh: always available from the menu
+1. Open the architecture-matched DMG.
+2. Drag `Codex Usage Status` to the `Applications` shortcut.
+3. Open `Codex Usage Status.app`.
+4. Click the menu-bar badge and enable `Launch at Login` if desired.
 
-Automatic queries are spaced at least 30 seconds apart. A finite `CODEX_USAGE_REFRESH_SECONDS` value explicitly selects a fixed success cadence instead of adaptive polling, with a 30-second minimum. Failed requests still retry after 300 seconds. Timer tolerance and request duration mean these intervals are not exact end-to-end update guarantees.
+### ZIP
 
-## Sleep, wake, and last-known readings
+1. Download and unzip the architecture-matched ZIP.
+2. Move `Codex Usage Status.app` to `/Applications`.
+3. Open the app.
+4. Click the menu-bar badge and enable `Launch at Login` if desired.
 
-The app keeps the last successful snapshot in memory. A temporary refresh failure no longer replaces valid numbers with an error-only badge: a neutral `~` separator marks last-known readings, and the tooltip shows the last successful read and latest error. Successful reads replace the snapshot and clear the error.
+The app is menu-bar-only and does not appear in the Dock. The DMG uses the project icon as its volume icon and includes a Retina-ready background. Downloaded unsigned or ad-hoc-signed builds may require normal macOS Gatekeeper approval.
 
-On device wake or display wake, the app redraws immediately and schedules a coalesced refresh, respecting the automatic minimum interval. Network recovery can advance a later retry. Sleep-era responses are discarded, and multiple wake/display events do not create parallel requests. While sleeping, query and display-expiry timers are stopped.
+## Menu-bar controls
 
-Each window becomes unknown at its own known reset deadline; a local one-shot redraw hides it without an extra quota query. Last-known data has a 24-hour display-retention ceiling and is always labelled stale after wake or failure. This ceiling is not a freshness guarantee. Restarting the process clears the in-memory snapshot: disk quota caching is deliberately not enabled because the rate-limit response does not identify which account a saved snapshot belongs to.
+Click the badge to access:
 
-The reproducible UI integration check uses fake responses and process-local workspace notifications, without putting the Mac to sleep or accessing an account:
+- `Refresh` — request an immediate update, subject to the safety floor.
+- `Display Style` — choose `Double Ring` or `Large Readout`.
+- `Launch at Login` — enable or disable the per-user LaunchAgent.
+- `About` — inspect usage, reset times, app version, executable path, and refresh state. While About is open, `Next refresh` updates once per second without issuing additional usage requests.
+- `Quit` — stop the monitor.
 
-```sh
-bash scripts/test-wake-recovery.sh
-```
+`Double Ring` is the default compact style. `Large Readout` keeps both values visible with larger numbers and thin status lines.
 
-See [wake/cache analysis](docs/wake-cache-strategy.md) for persistence tradeoffs and verification limits.
+## Refresh and stale readings
 
-## Safety model
+The normal adaptive schedule is deliberately conservative:
 
-This app only calls the official local Codex app-server method `account/rateLimits/read`. It does not modify Codex, does not read `~/.codex/auth.json`, and does not handle tokens, cookies, sessions, OAuth credentials, API keys, or browser data.
+- 30 seconds during startup and detected activity;
+- 60 seconds after 90 seconds without a valid usage change;
+- 120 seconds after 5 minutes without a valid usage change;
+- 300 seconds after a failed request;
+- manual refresh remains available from the menu.
 
-See [PRIVACY.md](PRIVACY.md) for the user-facing privacy summary and [SECURITY.md](SECURITY.md) for the hard engineering boundaries.
+These are scheduling targets, not exact end-to-end freshness guarantees: timer tolerance and request duration can add delay. Automatic requests never start more often than every 30 seconds.
+
+The app keeps the last successful snapshot in process memory while it revalidates. A temporary failure does not replace valid numbers with an error badge. A neutral `~` prefix beside each cached percentage means the reading is provisional; the tooltip and About panel show the last successful read and the latest error. Successful data clears the stale state. The center divider remains a normal dot.
+
+After sleep or display wake, the app redraws immediately and schedules one coalesced recovery refresh. Each window is hidden after its own known reset time without an extra account request. Cached readings expire from display after 24 hours. Disk quota caching is intentionally not enabled because the local response does not safely identify an account.
+
+See [the wake/cache analysis](docs/wake-cache-strategy.md) and [the refresh research](docs/refresh-scheduling-research.md) for the design tradeoffs and evidence boundaries.
+
+## Troubleshooting
+
+If the badge shows `?`, hover it or open `About` first; the app reports a safe failure category without exposing raw authentication material. The [failure matrix](docs/diagnostics.md) covers missing Codex executables, sign-in state, unsupported app-server responses, architecture mismatches, Gatekeeper blocks, sleep/wake failures, and hidden menu-bar items.
+
+## Privacy and security
+
+The app is intentionally narrow:
+
+- It calls only the local Codex app-server method `account/rateLimits/read`.
+- It does not read `~/.codex/auth.json`.
+- It does not read or store tokens, cookies, sessions, OAuth credentials, refresh tokens, API keys, passwords, browser storage, or chat history.
+- It does not scrape Codex or browser pages, use screenshots/OCR, automate login, or modify the official Codex app.
+- It does not upload usage data to this project or a third-party service.
+
+Codex owns authentication and any backend communication. This companion receives only the structured rate-limit response returned through the local app-server. See [PRIVACY.md](PRIVACY.md) and [SECURITY.md](SECURITY.md).
 
 ## Requirements
 
-- macOS 13 or later
-- Codex desktop installed and already signed in
-- The app automatically checks the common Codex desktop layouts in `/Applications` and `~/Applications`, including `Codex.app` and `ChatGPT.app`; `CODEX_BIN` remains available for a custom development install
+- macOS 13 or later;
+- Codex desktop installed and already signed in;
+- Node.js 20 or later for tests and optional CLI development commands;
+- Swift toolchain / Xcode Command Line Tools for source builds.
 
-## Install from release
+The app checks common `Codex.app` and `ChatGPT.app` layouts in `/Applications` and `~/Applications`. A custom development installation can be selected with `CODEX_BIN`.
 
-1. Download the latest release ZIP for your Mac from [GitHub Releases](https://github.com/TrevorLt/codex-usage-status/releases):
-   - Apple Silicon: `CodexUsageStatus-<version>-macos-arm64.zip`
-   - Intel: `CodexUsageStatus-<version>-macos-x86_64.zip`
-2. Unzip it.
-3. Move `Codex Usage Status.app` to `/Applications`.
-4. Open `Codex Usage Status.app`.
-
-You can also download the matching DMG for a standard macOS drag-to-install experience. Open the DMG and drag `Codex Usage Status` onto the `Applications` shortcut. The mounted disk uses the same 1B-M logo as its volume icon, and its Finder background is a multi-resolution 1x/2x TIFF so the charcoal/lavender layout stays sharp on Retina displays. It does not install background helpers or change unrelated system settings.
-
-The app is menu-bar-only, so it does not appear in the Dock. The bundle includes the 1B-M `CodexUsageStatus.icns` app icon, while its user-facing name is `Codex Usage Status`. To launch it automatically after login, check Launch at Login directly in the menu bar; it manages a per-user LaunchAgent and preserves a custom `CODEX_BIN` setting when one already exists. The app uses a per-user instance lock so launching another installed copy does not create a second menu-bar monitor; the `--once` diagnostic remains available while the monitor runs.
-
-On its first refresh, the app automatically checks the legacy Codex layout, the current ChatGPT-bundled Codex CLI shim, the nested Codex app-server executable, and per-user `/Applications` locations. If none is executable, hover the red `?` badge or open About to see the checked locations and the next action.
-
-Unsigned GitHub builds may trigger macOS Gatekeeper warnings. For a public polished release, sign with an Apple Developer ID and notarize the app.
-
-## Known limitations
-
-- A custom Codex installation outside the known `/Applications` and `~/Applications` layouts requires `CODEX_BIN` for a source/developer launch.
-- You must already be signed in to Codex.
-- Live usage depends on Codex's local app-server method `account/rateLimits/read`; if that local interface changes, this app may need an update.
-- The app shows usage only. It cannot buy credits, switch accounts, retry login, or change limits.
-- Local builds are ad-hoc signed by default. Downloaded release ZIPs may show Gatekeeper warnings until a notarized build is available.
-
-For a failure matrix and diagnostic interpretation, see [docs/diagnostics.md](docs/diagnostics.md).
-
-## Build from source
-
-For source builds:
-
-- Swift toolchain / Xcode Command Line Tools
-- Node.js 20 or later for tests and the optional CLI probe
+## Build and run from source
 
 ```sh
+git clone https://github.com/TrevorLt/codex-usage-status.git
+cd codex-usage-status
 npm test
-npm run test:native
 npm run build:macos
 npm run start:macos
 ```
 
-The build embeds the tracked `branding/CodexUsageStatus.icns` file in `Contents/Resources` and declares it in the generated `Info.plist`. `npm test` covers the optional CLI. `npm run test:native` runs policy/domain, path resolution, real subprocess faults, installer migration, login-item profile handling, sleep/wake recovery, and badge-rendering checks. It requires each harness's explicit PASS marker, not merely an exit code of zero. Account responses are fake; AppKit tests require a logged-in macOS graphical session. CI runs these tests before building or packaging.
+To install the source build into `/Applications` using the guarded migration script:
 
-`npm run test:swiftpm` runs the XCTest suite when the selected developer toolchain includes XCTest. Its isolated temporary build also works around mismatched public/private PackageDescription interfaces left by some Command Line Tools upgrades without changing system files. The direct native harnesses remain the supported test entry point when a full Xcode test environment is unavailable. `node branding/verify-logo.mjs` is an optional developer geometry check that currently uses a local bundled `sharp` path; it is not a portable release gate.
+```sh
+npm run install:macos
+```
 
-The build script defaults to the Mac's hardware architecture. On Apple Silicon this creates an `arm64` app, even if Node.js is running under Rosetta. To build a specific architecture:
+The build defaults to the Mac's hardware architecture. To select one explicitly:
 
 ```sh
 BUILD_ARCH=arm64 npm run build:macos
 BUILD_ARCH=x86_64 npm run build:macos
 ```
 
-To install into `/Applications`:
+For a one-shot local usage probe, use the built executable:
 
 ```sh
-npm run install:macos
+dist/'Codex Usage Status.app'/Contents/MacOS/CodexUsageStatus --once
 ```
 
-The source installer validates the target bundle, stages the new app, and preserves recoverable copies when replacing either the current name or the legacy `CodexUsageStatus.app` beside the selected destination. It migrates an existing `dev.local.CodexUsageStatus` LaunchAgent to the new executable path, preserving its other settings and loaded state, and restores the previous app/configuration if installation fails. It does not create a login item for a user who did not already enable one. Manual ZIP/DMG installs still use the standard Login Items flow.
+## Test and verification
 
-The app is a menu-bar-only app, so it does not appear in the Dock.
-
-To change the menu-bar display, click the badge and choose Display Style:
-
-- Double Ring: compact default with side labels and circular quota indicators.
-- Large Readout: larger numbers with subtle status lines for easier reading.
-
-To select an explicit fixed success interval while keeping the 30-second minimum:
+The supported checks are:
 
 ```sh
-CODEX_USAGE_REFRESH_SECONDS=180 npm run start:macos
+npm test
+npm run test:native
+npm run test:swiftpm       # when the selected toolchain includes XCTest
+BUILD_ARCH=arm64 npm run build:macos
+BUILD_ARCH=x86_64 npm run build:macos
 ```
 
-## CLI probe
+`npm run test:native` covers policy/domain behavior, executable discovery, subprocess faults, installer migration, LaunchAgent handling, sleep/wake recovery, and AppKit badge rendering. Its GUI harnesses require a logged-in macOS graphical session; a GUI process that exits without its explicit PASS marker is treated as a failure.
 
-The CLI uses the same safe app-server source and is useful for debugging:
+For release artifacts, the repository also verifies app identity, architecture, code-signing structure, icon embedding, DMG contents, and SHA-256 checksums. See [the release checklist](docs/release-checklist.md).
+
+## Packaging and releases
+
+Packaging is separate from development installation:
 
 ```sh
-npm run usage
-npm run usage:json
+npm run package:macos       # current hardware architecture
+npm run package:macos:all   # arm64 and x86_64 artifacts
+npm run package:macos:dmg  # DMG for the selected architecture
 ```
 
-The CLI output remains text-based for logs and tests even though the macOS menu-bar UI is a graphic badge.
+Generated artifacts include the app bundle, architecture-specific ZIP/DMG files, and `SHA256SUMS.txt`. Public releases should use Apple Developer ID signing and notarization; local builds are ad-hoc signed by default. Notarization is not automated because it requires Apple developer credentials.
 
-If your Codex binary lives somewhere else:
-
-```sh
-CODEX_BIN=/path/to/codex npm run usage
-```
-
-## Release package
-
-```sh
-npm run package:macos
-npm run package:macos:all
-```
-
-`package:macos` creates an architecture-specific ZIP and DMG for the current Mac. `package:macos:all` creates both `arm64` and `x86_64` ZIPs and DMGs plus `SHA256SUMS.txt` in `dist/`.
-
-Release ZIPs are architecture-specific:
-
-- `CodexUsageStatus-<version>-macos-arm64.zip` for Apple Silicon Macs.
-- `CodexUsageStatus-<version>-macos-x86_64.zip` for Intel Macs.
-- `CodexUsageStatus-<version>-macos-arm64.dmg` for Apple Silicon Macs.
-- `CodexUsageStatus-<version>-macos-x86_64.dmg` for Intel Macs.
-
-Each release ZIP and DMG contains the same 1B-M app icon; each DMG also includes the matching 1B-M volume icon and 1x/2x Finder background. Only the executable architecture differs between arm64 and x86_64 packages.
-
-For another MacBook, the most reliable source-build path is to clone the repository on that Mac and run `npm run install:macos`; it will build the correct native architecture there.
+Release process and artifact checks are documented in [docs/release.md](docs/release.md), and version-specific download guides live in the release notes.
 
 ## Repository layout
 
-- `macos/CodexUsageStatus/`: native AppKit menu-bar app.
-  - `App/`: status item lifecycle, menu actions, refresh scheduling, and configuration.
-  - `Codex/`: local Codex app-server JSON-RPC client.
-  - `Domain/`: rate-limit response models and usage normalization.
-  - `UI/`: badge styles and AppKit drawing code.
-- `src/`: Node CLI probe for diagnostics and tests.
-- `test/`: Node tests for response normalization and sensitive-output redaction.
-- `scripts/`: build, run, install, and release packaging scripts.
-- `.github/workflows/`: CI and release artifact workflows.
-- `docs/`: architecture, structure, release, and upstream integration notes.
+```text
+src/                         optional Node CLI and protocol probe
+macos/CodexUsageStatus/      Swift/AppKit menu-bar app and native tests
+branding/                    icon, SVG source, and geometry checks
+scripts/                     build, install, package, and integration checks
+docs/                        architecture, research, diagnostics, and release notes
+CONTRIBUTING.md              contribution boundaries and local checks
+PRIVACY.md                   user-facing privacy summary
+SECURITY.md                  security boundaries and reporting policy
+```
 
-See [docs/project-structure.md](docs/project-structure.md) for the source layout and dependency boundaries.
+## Contributing
+
+Please read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a change. Keep the project narrow and safe: do not add credential-file access, browser scraping, login automation, quota-bypass behavior, or aggressive polling. Changes that alter refresh behavior should include measured freshness/resource evidence and updated tests or documentation.
+
+For bugs, include the macOS version, hardware architecture, app version, display style, a minimal reproduction, and redacted diagnostics. Never attach tokens, cookies, `~/.codex/auth.json`, raw authentication material, or private account data. Security issues should follow [SECURITY.md](SECURITY.md), not a public issue.
+
+## Attribution and license
+
+This independent continuation is based on [tollenceld/codex-usage-status](https://github.com/tollenceld/codex-usage-status) by [@tollenceld](https://github.com/tollenceld). The project is released under the [MIT License](LICENSE).
