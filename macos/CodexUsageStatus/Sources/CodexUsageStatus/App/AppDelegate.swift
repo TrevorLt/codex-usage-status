@@ -18,6 +18,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     private var timer: Timer?
     private var displayValidityTimer: Timer?
+    private var aboutRefreshTimer: Timer?
+    private weak var aboutAlert: NSAlert?
     private var isRefreshing = false
     private var refreshPolicy = RefreshPolicy()
     private var badgeStyle = BadgeStyle.load()
@@ -110,6 +112,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         timer?.invalidate()
         displayValidityTimer?.invalidate()
+        aboutRefreshTimer?.invalidate()
         pathMonitor.cancel()
         NSWorkspace.shared.notificationCenter.removeObserver(self)
     }
@@ -191,6 +194,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     @objc private func showAbout() {
+        let alert = NSAlert()
+        alert.messageText = "About Codex Usage Status"
+        alert.addButton(withTitle: "OK")
+
+        aboutRefreshTimer?.invalidate()
+        aboutAlert = alert
+        updateAboutAlert()
+
+        let refreshTimer = Timer(timeInterval: 1, target: self, selector: #selector(aboutRefreshTimerDidFire), userInfo: nil, repeats: true)
+        aboutRefreshTimer = refreshTimer
+        RunLoop.main.add(refreshTimer, forMode: .common)
+        defer {
+            refreshTimer.invalidate()
+            if aboutRefreshTimer === refreshTimer { aboutRefreshTimer = nil }
+            if aboutAlert === alert { aboutAlert = nil }
+        }
+
+        alert.runModal()
+    }
+
+    @objc private func aboutRefreshTimerDidFire() {
+        updateAboutAlert()
+    }
+
+    private func updateAboutAlert() {
+        guard let alert = aboutAlert else { return }
+        alert.informativeText = aboutMessage()
+    }
+
+    private func aboutMessage() -> String {
         var status: String
         if let lastUsage {
             status = lastUsage.tooltip(formatter: dateFormatter)
@@ -202,10 +235,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
 
         let lastRefresh = lastRefreshDate.map { dateFormatter.string(from: $0) } ?? "Never"
-        let nextRefresh = nextRefreshAt.map { "in \(max(0, Int($0.timeIntervalSinceNow))) seconds" } ?? (isSleeping ? "after wake" : "in progress")
+        let nextRefresh = nextRefreshAt.map {
+            "in \(max(0, Int(ceil($0.timeIntervalSinceNow)))) seconds"
+        } ?? (isSleeping ? "after wake" : "in progress")
         let appVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "unknown"
         let codexPath = CodexPathResolver.firstExecutablePath(in: CodexPathResolver.candidatePaths()) ?? "not found in known locations"
-        let message = """
+        return """
         \(status)
 
         App version: \(appVersion)
@@ -216,12 +251,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         Codex executable: \(codexPath)
         Data source: local Codex app-server
         """
-
-        let alert = NSAlert()
-        alert.messageText = "About Codex Usage Status"
-        alert.informativeText = message
-        alert.addButton(withTitle: "OK")
-        alert.runModal()
     }
 
     private func setBadgeStyle(_ style: BadgeStyle) {
