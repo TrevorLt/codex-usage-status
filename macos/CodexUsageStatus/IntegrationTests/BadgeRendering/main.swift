@@ -23,6 +23,27 @@ struct BadgeRenderingAudit {
             (.darkAqua, .white, NSColor(calibratedWhite: 0.18, alpha: 1), "darkAqua"),
         ]
 
+        // The stale marker belongs beside each reading, not in the global divider gap.
+        // Compare stale and fresh base layers so this catches the actual raster layout.
+        let staleTestUsage = try makeUsage(primaryRemaining: 19, weeklyRemaining: 88, now: now)
+        for style in BadgeStyle.allCases {
+            let appearance = try unwrap(NSAppearance(named: .darkAqua), "missing dark appearance")
+            let staleBadge = UsageBadgeRenderer.rendering(for: staleTestUsage, style: style, appearance: appearance, isStale: true, now: now)
+            let freshBadge = UsageBadgeRenderer.rendering(for: staleTestUsage, style: style, appearance: appearance, now: now)
+            let staleBitmap = try rasterize(staleBadge.image)
+            let freshBitmap = try rasterize(freshBadge.image)
+            let centerRanges: (Range<Int>, Range<Int>) = style == .doubleRing
+                ? (17..<40, 63..<86)
+                : (14..<40, 60..<86)
+
+            check(countDifferentPixels(in: staleBitmap, and: freshBitmap, xRange: 39..<47, yRange: 0..<24) == 0,
+                "\(style) stale marker does not occupy the divider gap")
+            check(countDifferentPixels(in: staleBitmap, and: freshBitmap, xRange: centerRanges.0, yRange: 3..<21) > 0,
+                "\(style) stale marker is adjacent to the left reading")
+            check(countDifferentPixels(in: staleBitmap, and: freshBitmap, xRange: centerRanges.1, yRange: 3..<21) > 0,
+                "\(style) stale marker is adjacent to the right reading")
+        }
+
         // The rendered button is the regression surface: the template base and red overlay
         // are captured together after AppKit lays out the image and overlay view.
         for style in BadgeStyle.allCases {
@@ -217,6 +238,42 @@ struct BadgeRenderingAudit {
         yRange: Range<Int>? = nil
     ) -> Int {
         countPixels(in: bitmap, xRange: xRange ?? 0..<90, yRange: yRange, matching: .red)
+    }
+
+    @MainActor
+    private static func rasterize(_ image: NSImage) throws -> NSBitmapImageRep {
+        guard let tiff = image.tiffRepresentation, let bitmap = NSBitmapImageRep(data: tiff) else {
+            throw AuditFailure(message: "could not rasterize badge image")
+        }
+        return bitmap
+    }
+
+    @MainActor
+    private static func countDifferentPixels(
+        in lhs: NSBitmapImageRep,
+        and rhs: NSBitmapImageRep,
+        xRange: Range<Int>,
+        yRange: Range<Int>
+    ) -> Int {
+        let scale = CGFloat(lhs.pixelsWide) / 86
+        let minX = max(0, Int((CGFloat(xRange.lowerBound) * scale).rounded(.down)))
+        let maxX = min(lhs.pixelsWide, Int((CGFloat(xRange.upperBound) * scale).rounded(.up)))
+        let minY = max(0, Int((CGFloat(yRange.lowerBound) * scale).rounded(.down)))
+        let maxY = min(lhs.pixelsHigh, Int((CGFloat(yRange.upperBound) * scale).rounded(.up)))
+        var count = 0
+
+        for y in minY..<maxY {
+            for x in minX..<maxX {
+                guard let left = lhs.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB),
+                      let right = rhs.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB) else { continue }
+                let difference = abs(left.redComponent - right.redComponent)
+                    + abs(left.greenComponent - right.greenComponent)
+                    + abs(left.blueComponent - right.blueComponent)
+                    + abs(left.alphaComponent - right.alphaComponent)
+                if difference > 0.05 { count += 1 }
+            }
+        }
+        return count
     }
 
     @MainActor
