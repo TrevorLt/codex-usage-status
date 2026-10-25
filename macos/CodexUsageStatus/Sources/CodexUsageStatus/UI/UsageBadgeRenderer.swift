@@ -6,6 +6,27 @@ struct UsageBadgeRendering {
 
     /// Red warning marks for windows below 20%, drawn above the template image.
     let warningOverlay: NSImage?
+
+    /// Apple-green progress overlay, shown only after a reset is confirmed by a fresh read.
+    let resetOverlay: NSImage?
+    let resetOverlayAlpha: CGFloat
+
+    /// A static amber mark for a confirmed reset credit expiring soon.
+    let expiryReminder: Bool
+
+    init(
+        image: NSImage,
+        warningOverlay: NSImage? = nil,
+        resetOverlay: NSImage? = nil,
+        resetOverlayAlpha: CGFloat = 0,
+        expiryReminder: Bool = false
+    ) {
+        self.image = image
+        self.warningOverlay = warningOverlay
+        self.resetOverlay = resetOverlay
+        self.resetOverlayAlpha = resetOverlayAlpha
+        self.expiryReminder = expiryReminder
+    }
 }
 
 enum UsageBadgeRenderer {
@@ -26,15 +47,31 @@ enum UsageBadgeRenderer {
         style: BadgeStyle,
         appearance: NSAppearance,
         isStale: Bool = false,
+        staleWindows: Set<UsageWindowKind>? = nil,
         now: Date = Date(),
-        hideReadings: Bool = false
+        hideReadings: Bool = false,
+        showExpiryReminder: Bool = false,
+        animationFrame: UsageBadgeAnimationFrame? = nil
     ) -> UsageBadgeRendering {
-        render(
+        let staleKinds = staleWindows ?? (isStale ? [.fiveHour, .weekly] : [])
+        return render(
             style: style,
-            left: BadgeValue(label: "5H", percent: hideReadings || usage.fiveHour.isExpired(at: now) ? nil : usage.fiveHour.remainingPercent),
-            right: BadgeValue(label: "7D", percent: hideReadings || usage.weekly.isExpired(at: now) ? nil : usage.weekly.remainingPercent),
+            left: BadgeValue(
+                label: "5H",
+                percent: hideReadings || usage.fiveHour.isExpired(at: now) ? nil : usage.fiveHour.remainingPercent,
+                displayedPercent: hideReadings || usage.fiveHour.isExpired(at: now) ? nil : animationFrame?.fiveHourPercent,
+                isStale: staleKinds.contains(.fiveHour)
+            ),
+            right: BadgeValue(
+                label: "7D",
+                percent: hideReadings || usage.weekly.isExpired(at: now) ? nil : usage.weekly.remainingPercent,
+                displayedPercent: hideReadings || usage.weekly.isExpired(at: now) ? nil : animationFrame?.weeklyPercent,
+                isStale: staleKinds.contains(.weekly)
+            ),
             appearance: appearance,
-            isStale: isStale
+            resetWindows: animationFrame?.resetWindows ?? [],
+            resetOverlayAlpha: animationFrame?.resetHighlightAlpha ?? 0,
+            showExpiryReminder: showExpiryReminder
         )
     }
 
@@ -47,9 +84,18 @@ enum UsageBadgeRenderer {
         appearance: NSAppearance,
         isStale: Bool = false,
         now: Date = Date(),
-        hideReadings: Bool = false
+        hideReadings: Bool = false,
+        showExpiryReminder: Bool = false
     ) -> NSImage {
-        rendering(for: usage, style: style, appearance: appearance, isStale: isStale, now: now, hideReadings: hideReadings).image
+        rendering(
+            for: usage,
+            style: style,
+            appearance: appearance,
+            isStale: isStale,
+            now: now,
+            hideReadings: hideReadings,
+            showExpiryReminder: showExpiryReminder
+        ).image
     }
 
     static func placeholderImage(style: BadgeStyle, appearance: NSAppearance) -> NSImage {
@@ -71,30 +117,38 @@ enum UsageBadgeRenderer {
         ).image
     }
 
-    /// Installs the template image as the button image and positions the optional red overlay
-    /// over the exact image rect, so neutral marks retain AppKit's native template tinting.
+    /// Installs the template base and keeps colored overlays aligned to its exact image rect.
     @MainActor
     static func apply(_ rendering: UsageBadgeRendering, to button: NSButton) {
         button.image = rendering.image
-        let overlayView = button.subviews.compactMap { $0 as? BadgeWarningOverlayView }.first
-
-        guard let warningOverlay = rendering.warningOverlay else {
-            overlayView?.removeFromSuperview()
-            return
-        }
-
-        let warningView = overlayView ?? BadgeWarningOverlayView(frame: .zero)
-        if overlayView == nil {
-            button.addSubview(warningView, positioned: .above, relativeTo: nil)
-        }
-        warningView.warningImage = warningOverlay
-        warningView.frame = button.cell?.imageRect(forBounds: button.bounds)
+        let imageRect = button.cell?.imageRect(forBounds: button.bounds)
             ?? centeredImageRect(for: rendering.image, in: button.bounds)
+        let warningView = button.subviews.compactMap { $0 as? BadgeWarningOverlayView }.first
+        if let warningOverlay = rendering.warningOverlay {
+            let view = warningView ?? BadgeWarningOverlayView(frame: .zero)
+            if warningView == nil { button.addSubview(view, positioned: .above, relativeTo: nil) }
+            view.warningImage = warningOverlay
+            view.frame = imageRect
+        } else {
+            warningView?.removeFromSuperview()
+        }
+
+        let resetView = button.subviews.compactMap { $0 as? BadgeResetOverlayView }.first
+        if let resetOverlay = rendering.resetOverlay, rendering.resetOverlayAlpha > 0 {
+            let view = resetView ?? BadgeResetOverlayView(frame: .zero)
+            if resetView == nil { button.addSubview(view, positioned: .above, relativeTo: warningView) }
+            view.overlayImage = resetOverlay
+            view.overlayAlpha = rendering.resetOverlayAlpha
+            view.frame = imageRect
+        } else {
+            resetView?.removeFromSuperview()
+        }
+        applyExpiryReminder(rendering.expiryReminder, to: button)
     }
 
     @MainActor
     static func apply(image: NSImage, to button: NSButton) {
-        apply(UsageBadgeRendering(image: image, warningOverlay: nil), to: button)
+        apply(UsageBadgeRendering(image: image, warningOverlay: nil, expiryReminder: false), to: button)
     }
 
     private static func centeredImageRect(for image: NSImage, in bounds: NSRect) -> NSRect {
@@ -112,7 +166,10 @@ enum UsageBadgeRenderer {
         right: BadgeValue,
         appearance: NSAppearance,
         forcedColor: NSColor? = nil,
-        isStale: Bool = false
+        isStale: Bool = false,
+        resetWindows: Set<UsageWindowKind> = [],
+        resetOverlayAlpha: Double = 0,
+        showExpiryReminder: Bool = false
     ) -> UsageBadgeRendering {
         let image = renderLayer(
             style: style,
@@ -133,12 +190,93 @@ enum UsageBadgeRenderer {
                 warningOverlay: true
             )
             : nil
+        let resetOverlay = forcedColor == nil && !resetWindows.isEmpty
+            ? renderResetOverlay(style: style, left: left, right: right, appearance: appearance, resetWindows: resetWindows)
+            : nil
 
-        return UsageBadgeRendering(image: image, warningOverlay: overlay)
+        return UsageBadgeRendering(
+            image: image,
+            warningOverlay: overlay,
+            resetOverlay: resetOverlay,
+            resetOverlayAlpha: CGFloat(max(0, min(1, resetOverlayAlpha))),
+            expiryReminder: showExpiryReminder && forcedColor == nil
+        )
+    }
+
+    @MainActor
+    private static func applyExpiryReminder(_ show: Bool, to button: NSButton) {
+        let existing = button.subviews.compactMap { $0 as? BadgeExpiryReminderDotView }.first
+        guard show else {
+            existing?.removeFromSuperview()
+            return
+        }
+
+        let dot = existing ?? BadgeExpiryReminderDotView(frame: .zero)
+        if existing == nil {
+            button.addSubview(dot, positioned: .above, relativeTo: nil)
+        }
+        let imageRect = button.cell?.imageRect(forBounds: button.bounds)
+            ?? NSRect(x: 2, y: 0, width: 86, height: 24)
+        dot.frame = NSRect(x: imageRect.maxX - 5.5, y: imageRect.maxY - 5.5, width: 4.5, height: 4.5)
     }
 
     private static func containsWarning(left: BadgeValue, right: BadgeValue) -> Bool {
-        [left.percent, right.percent].compactMap { $0 }.contains { $0 < 20 }
+        [left.progressPercent, right.progressPercent].compactMap { $0 }.contains { $0 < 20 }
+    }
+
+    private static func renderResetOverlay(
+        style: BadgeStyle,
+        left: BadgeValue,
+        right: BadgeValue,
+        appearance: NSAppearance,
+        resetWindows: Set<UsageWindowKind>
+    ) -> NSImage {
+        let size = style == .doubleRing ? doubleRingImageSize : largeReadoutImageSize
+        let image = NSImage(size: size)
+        image.lockFocus()
+        defer { image.unlockFocus() }
+
+        appearance.performAsCurrentDrawingAppearance {
+            NSColor.clear.setFill()
+            NSRect(origin: .zero, size: size).fill()
+            switch style {
+            case .doubleRing:
+                if resetWindows.contains(.fiveHour) {
+                    drawResetRing(percent: left.progressPercent, center: NSPoint(x: 29, y: 12))
+                }
+                if resetWindows.contains(.weekly) {
+                    drawResetRing(percent: right.progressPercent, center: NSPoint(x: 75, y: 12))
+                }
+            case .largeReadout:
+                if resetWindows.contains(.fiveHour), let percent = left.progressPercent {
+                    drawReadoutFill(percent: percent, lineRect: NSRect(x: 1, y: 2.4, width: 36, height: 1.5), color: .systemGreen, alpha: 1)
+                }
+                if resetWindows.contains(.weekly), let percent = right.progressPercent {
+                    drawReadoutFill(percent: percent, lineRect: NSRect(x: 48, y: 2.4, width: 36, height: 1.5), color: .systemGreen, alpha: 1)
+                }
+            }
+        }
+
+        image.isTemplate = false
+        return image
+    }
+
+    private static func drawResetRing(percent: Double?, center: NSPoint) {
+        guard let percent else { return }
+        let progress = max(0, min(100, percent))
+        guard progress > 0 else { return }
+        let ring = NSBezierPath()
+        ring.appendArc(
+            withCenter: center,
+            radius: 9.7,
+            startAngle: 90,
+            endAngle: 90 - CGFloat(progress) * 3.6,
+            clockwise: true
+        )
+        ring.lineWidth = 2.25
+        ring.lineCapStyle = .round
+        NSColor.systemGreen.setStroke()
+        ring.stroke()
     }
 
     private static func renderLayer(
@@ -196,10 +334,6 @@ enum UsageBadgeRenderer {
             NSColor.clear.setFill()
             rect.fill()
 
-            if !warningOverlay {
-                drawDivider(foregroundColor: foregroundColor)
-            }
-
             drawLabeledRing(
                 value: left,
                 labelRect: NSRect(x: 1, y: 4.0, width: 11, height: 16),
@@ -242,10 +376,6 @@ enum UsageBadgeRenderer {
             NSColor.clear.setFill()
             rect.fill()
 
-            if !warningOverlay {
-                drawDivider(foregroundColor: foregroundColor)
-            }
-
             drawReadoutGroup(
                 value: left,
                 labelRect: NSRect(x: 1, y: 4.0, width: 11, height: 16),
@@ -272,13 +402,6 @@ enum UsageBadgeRenderer {
         return image
     }
 
-    private static func drawDivider(foregroundColor: NSColor) {
-        let divider = NSBezierPath()
-        divider.appendArc(withCenter: NSPoint(x: 43, y: 12), radius: 1, startAngle: 0, endAngle: 360)
-        foregroundColor.withAlphaComponent(0.25).setFill()
-        divider.fill()
-    }
-
     private static func drawLabeledRing(
         value: BadgeValue,
         labelRect: NSRect,
@@ -289,7 +412,7 @@ enum UsageBadgeRenderer {
         warningOverlay: Bool
     ) {
         if warningOverlay {
-            guard let percent = value.percent, percent < 20 else { return }
+            guard let percent = value.progressPercent, percent < 20 else { return }
             drawWarningArc(percent: percent, center: ringCenter, color: .systemRed)
             return
         }
@@ -322,8 +445,8 @@ enum UsageBadgeRenderer {
         foregroundColor.withAlphaComponent(0.20).setStroke()
         track.stroke()
 
-        let isWarning = suppressWarningContent && (value.percent.map { $0 < 20 } ?? false)
-        if let percent = value.percent, !isWarning {
+        let isWarning = suppressWarningContent && (value.progressPercent.map { $0 < 20 } ?? false)
+        if let percent = value.progressPercent, !isWarning {
             let progress = max(0, min(100, percent))
             let ring = NSBezierPath()
             ring.appendArc(
@@ -340,17 +463,18 @@ enum UsageBadgeRenderer {
         }
 
         drawText(
-            readingText(for: value, isStale: isStale),
+            value.centerText,
             center: center,
             yOffset: -5.5,
-            fontSize: ringFontSize(for: value, isStale: isStale),
+            fontSize: ringFontSize(for: value),
             weight: .bold,
             alpha: 0.98,
             foregroundColor: foregroundColor
         )
+        if value.isStale { drawRingStaleMarker(near: center, foregroundColor: foregroundColor) }
     }
 
-    private static func drawWarningArc(percent: Int, center: NSPoint, color: NSColor) {
+    private static func drawWarningArc(percent: Double, center: NSPoint, color: NSColor) {
         // A zero-length progress arc would hide the warning entirely. At 0%, use
         // a complete red ring while leaving the percentage text in the template layer.
         let visiblePercent = percent == 0 ? 100 : max(0, min(100, percent))
@@ -379,7 +503,7 @@ enum UsageBadgeRenderer {
         isStale: Bool,
         warningOverlay: Bool
     ) {
-        let percent = value.percent.map { max(0, min(100, $0)) }
+        let percent = value.progressPercent.map { max(0, min(100, $0)) }
         let isWarning = forcedColor == nil && (percent.map { $0 < 20 } ?? false)
 
         if warningOverlay {
@@ -390,14 +514,15 @@ enum UsageBadgeRenderer {
 
         drawStackedLabel(value.label, in: labelRect, alpha: 0.62, foregroundColor: foregroundColor)
         drawString(
-            readingText(for: value, isStale: isStale),
+            value.centerText,
             in: numberRect,
-            fontSize: readoutFontSize(for: value, isStale: isStale),
+            fontSize: readoutFontSize(for: value),
             weight: .bold,
             alpha: 0.96,
             alignment: .left,
             foregroundColor: foregroundColor
         )
+        if value.isStale { drawReadoutStaleMarker(in: numberRect, foregroundColor: foregroundColor) }
 
         let track = NSBezierPath(roundedRect: lineRect, xRadius: 0.7, yRadius: 0.7)
         foregroundColor.withAlphaComponent(0.14).setFill()
@@ -409,7 +534,7 @@ enum UsageBadgeRenderer {
         }
     }
 
-    private static func drawReadoutFill(percent: Int, lineRect: NSRect, color: NSColor, alpha: CGFloat) {
+    private static func drawReadoutFill(percent: Double, lineRect: NSRect, color: NSColor, alpha: CGFloat) {
         let fillWidth = max(1.2, lineRect.width * CGFloat(percent) / 100)
         let fillRect = NSRect(x: lineRect.minX, y: lineRect.minY, width: fillWidth, height: lineRect.height)
         let fillPath = NSBezierPath(roundedRect: fillRect, xRadius: 0.7, yRadius: 0.7)
@@ -487,25 +612,22 @@ enum UsageBadgeRenderer {
         text.draw(in: rect, withAttributes: attributes)
     }
 
-    private static func readingText(for value: BadgeValue, isStale: Bool) -> String {
-        guard isStale, value.percent != nil, value.overrideText == nil else {
-            return value.centerText
-        }
-        return "~\(value.centerText)"
+    private static func ringFontSize(for value: BadgeValue) -> CGFloat {
+        value.centerText.count >= 3 ? 7.4 : 9.0
     }
 
-    private static func ringFontSize(for value: BadgeValue, isStale: Bool) -> CGFloat {
-        guard isStale, value.percent != nil, value.overrideText == nil else {
-            return value.centerText.count >= 3 ? 7.4 : 9.0
-        }
-        return value.centerText.count >= 3 ? 6.7 : 7.8
+    private static func readoutFontSize(for value: BadgeValue) -> CGFloat {
+        value.centerText.count >= 3 ? 11.6 : 13.2
     }
 
-    private static func readoutFontSize(for value: BadgeValue, isStale: Bool) -> CGFloat {
-        guard isStale, value.percent != nil, value.overrideText == nil else {
-            return value.centerText.count >= 3 ? 11.6 : 13.2
-        }
-        return value.centerText.count >= 3 ? 9.8 : 10.8
+    private static func drawRingStaleMarker(near center: NSPoint, foregroundColor: NSColor) {
+        drawString("~", in: NSRect(x: center.x - 10.5, y: center.y + 5.2, width: 4.5, height: 6),
+                   fontSize: 5.0, weight: .medium, alpha: 0.62, alignment: .center, foregroundColor: foregroundColor)
+    }
+
+    private static func drawReadoutStaleMarker(in numberRect: NSRect, foregroundColor: NSColor) {
+        drawString("~", in: NSRect(x: numberRect.minX - 3.1, y: numberRect.maxY - 5.8, width: 3.0, height: 6),
+                   fontSize: 5.0, weight: .medium, alpha: 0.62, alignment: .center, foregroundColor: foregroundColor)
     }
 
     private static var centeredParagraphStyle: NSParagraphStyle {
@@ -517,7 +639,7 @@ enum UsageBadgeRenderer {
 
     private static var neutralColor: NSColor { NSColor.labelColor }
 
-    private static func color(for percent: Int, foregroundColor: NSColor) -> NSColor {
+    private static func color(for percent: Double, foregroundColor: NSColor) -> NSColor {
         percent < 20 ? .systemRed : foregroundColor
     }
 }
@@ -536,24 +658,62 @@ private final class BadgeWarningOverlayView: NSView {
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 }
 
+@MainActor
+private final class BadgeResetOverlayView: NSView {
+    var overlayImage: NSImage? {
+        didSet { needsDisplay = true }
+    }
+    var overlayAlpha: CGFloat = 0 {
+        didSet { needsDisplay = true }
+    }
+
+    override var isFlipped: Bool { false }
+
+    override func draw(_ dirtyRect: NSRect) {
+        overlayImage?.draw(in: bounds, from: .zero, operation: .sourceOver, fraction: overlayAlpha)
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+}
+
+@MainActor
+private final class BadgeExpiryReminderDotView: NSView {
+    override var isFlipped: Bool { false }
+
+    override func draw(_ dirtyRect: NSRect) {
+        NSColor(calibratedRed: 0.96, green: 0.63, blue: 0.16, alpha: 1).setFill()
+        NSBezierPath(ovalIn: bounds.insetBy(dx: 0.35, dy: 0.35)).fill()
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+}
+
 struct BadgeValue {
     let label: String
     let percent: Int?
     let overrideText: String?
+    let displayedPercent: Double?
+    let isStale: Bool
 
-    init(label: String, percent: Int?, overrideText: String? = nil) {
+    init(label: String, percent: Int?, overrideText: String? = nil, displayedPercent: Double? = nil, isStale: Bool = false) {
         self.label = label
         self.percent = percent
         self.overrideText = overrideText
+        self.displayedPercent = displayedPercent
+        self.isStale = isStale
+    }
+
+    var progressPercent: Double? {
+        displayedPercent ?? percent.map(Double.init)
     }
 
     var centerText: String {
         if let overrideText {
             return overrideText
         }
-        guard let percent else {
+        guard let progressPercent else {
             return "--"
         }
-        return "\(percent)"
+        return "\(Int(progressPercent.rounded()))"
     }
 }

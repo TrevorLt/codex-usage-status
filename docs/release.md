@@ -26,7 +26,7 @@ BUILD_ARCH=arm64 npm run package:macos
 BUILD_ARCH=x86_64 npm run package:macos
 ```
 
-The CI and release workflows require the native behavior suite before their build/package jobs. Test a development build with an explicit version such as `VERSION=0.1.3-dev npm run build:macos`; do not replace an existing release's assets with an unreleased build.
+The CI and release workflows require the native behavior suite before their build/package jobs. Test a development build with an explicit version such as `VERSION=0.1.4-dev npm run build:macos`; do not replace an existing release's assets with an unreleased build.
 
 ## Signing
 

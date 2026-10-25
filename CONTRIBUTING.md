@@ -19,5 +19,5 @@ npm test
 bash scripts/test-wake-recovery.sh
 BUILD_ARCH=arm64 npm run build:macos
 BUILD_ARCH=x86_64 npm run build:macos
-dist/CodexUsageStatus.app/Contents/MacOS/CodexUsageStatus --once
+dist/'Codex Usage Status.app'/Contents/MacOS/CodexUsageStatus --once
 ```

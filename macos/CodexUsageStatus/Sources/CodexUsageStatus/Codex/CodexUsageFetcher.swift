@@ -13,12 +13,58 @@ enum CodexUsageFetcher {
         return try UsageSummary(response: response)
     }
 
+    static func consumeReset(creditID: String?, idempotencyKey: String) async throws -> String {
+        try await Task.detached(priority: .userInitiated) {
+            try consumeResetSync(creditID: creditID, idempotencyKey: idempotencyKey)
+        }.value
+    }
+
     private static func readRateLimits() throws -> RateLimitsResponse {
         let candidates = CodexPathResolver.candidatePaths()
         guard let codexPath = CodexPathResolver.firstExecutablePath(in: candidates) else {
             throw FetchError.codexNotFound(candidates)
         }
 
+        let responseBox = ResponseBox()
+        try exchangeWithAppServer(
+            codexPath: codexPath,
+            request: try rateLimitsRequest(),
+            responseBox: responseBox
+        )
+        switch responseBox.rateLimitsResult() {
+        case .success(let response):
+            return response
+        case .failure(let error):
+            throw error
+        case .none:
+            throw FetchError.missingRateLimitResponse
+        }
+    }
+
+    private static func consumeResetSync(creditID: String?, idempotencyKey: String) throws -> String {
+        guard !idempotencyKey.isEmpty else { throw FetchError.invalidOutput }
+        let candidates = CodexPathResolver.candidatePaths()
+        guard let codexPath = CodexPathResolver.firstExecutablePath(in: candidates) else {
+            throw FetchError.codexNotFound(candidates)
+        }
+
+        let responseBox = ResponseBox(kind: .resetConsume)
+        try exchangeWithAppServer(
+            codexPath: codexPath,
+            request: try resetConsumeRequest(creditID: creditID, idempotencyKey: idempotencyKey),
+            responseBox: responseBox
+        )
+        switch responseBox.resetConsumeResult() {
+        case .success(let response):
+            return response.outcome
+        case .failure(let error):
+            throw error
+        case .none:
+            throw FetchError.missingRateLimitResponse
+        }
+    }
+
+    private static func exchangeWithAppServer(codexPath: String, request: String, responseBox: ResponseBox) throws {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: codexPath)
         process.arguments = ["app-server", "--listen", "stdio://"]
@@ -30,7 +76,6 @@ enum CodexUsageFetcher {
         process.standardOutput = standardOutput
         process.standardError = standardError
 
-        let responseBox = ResponseBox()
         let diagnostics = ProcessDiagnosticCapture()
         let completion = ProcessCompletion()
         let standardOutputEOF = PipeEndOfFile()
@@ -70,11 +115,7 @@ enum CodexUsageFetcher {
             throw FetchError.appServerLaunchFailed
         }
 
-        let requestLines = [
-            #"{"method":"initialize","id":1,"params":{"clientInfo":{"name":"codex_usage_status_menubar","title":"Codex Usage Status","version":"0.1.0"},"capabilities":{"experimentalApi":true}}}"#,
-            #"{"method":"initialized"}"#,
-            #"{"method":"account/rateLimits/read","id":2}"#
-        ].joined(separator: "\n") + "\n"
+        let requestLines = [try initializeRequest(), #"{"method":"initialized"}"#, request].joined(separator: "\n") + "\n"
 
         if process.isRunning {
             do {
@@ -108,16 +149,44 @@ enum CodexUsageFetcher {
             throw FetchError.timeout
         }
 
-        switch responseBox.result() {
-        case .success(let response):
-            return response
-        case .failure(let error):
+        if case .failure(let error)? = responseBox.payloadResult() {
             if case .appServerExited(let status, _) = error as? FetchError {
                 throw FetchError.appServerExited(status, diagnostics.safeDescription())
             }
             throw error
-        case .none:
-            throw FetchError.missingRateLimitResponse
+        }
+    }
+
+    private static func initializeRequest() throws -> String {
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "development"
+        let value: [String: Any] = [
+            "method": "initialize",
+            "id": 1,
+            "params": [
+                "clientInfo": ["name": "codex_usage_status_menubar", "title": "Codex Usage Status", "version": version],
+                "capabilities": ["experimentalApi": true]
+            ]
+        ]
+        return try jsonLine(value)
+    }
+
+    private static func rateLimitsRequest() throws -> String {
+        try jsonLine(["method": "account/rateLimits/read", "id": 2])
+    }
+
+    private static func resetConsumeRequest(creditID: String?, idempotencyKey: String) throws -> String {
+        var params: [String: String] = ["idempotencyKey": idempotencyKey]
+        if let creditID, !creditID.isEmpty { params["creditId"] = creditID }
+        return try jsonLine(["method": "account/rateLimitResetCredit/consume", "id": 2, "params": params])
+    }
+
+    private static func jsonLine(_ value: [String: Any]) throws -> String {
+        do {
+            let data = try JSONSerialization.data(withJSONObject: value, options: [.sortedKeys])
+            guard let line = String(data: data, encoding: .utf8) else { throw FetchError.invalidOutput }
+            return line
+        } catch {
+            throw FetchError.invalidOutput
         }
     }
 
@@ -172,14 +241,33 @@ enum CodexUsageFetcher {
     }
 }
 
+enum ResponsePayloadKind: Sendable {
+    case rateLimits
+    case resetConsume
+}
+
+enum AppServerResponsePayload: Sendable {
+    case rateLimits(RateLimitsResponse)
+    case resetConsume(ResetCreditConsumeResponse)
+}
+
+struct ResetCreditConsumeResponse: Decodable, Sendable {
+    let outcome: String
+}
+
 final class ResponseBox: @unchecked Sendable {
     static let maximumLineBytes = 1_048_576
 
     private let lock = NSLock()
     private let semaphore = DispatchSemaphore(value: 0)
     private var lineBuffer = Data()
-    private var storedResult: Result<RateLimitsResponse, Error>?
+    private let kind: ResponsePayloadKind
+    private var storedResult: Result<AppServerResponsePayload, Error>?
     private var terminationStatus: Int32?
+
+    init(kind: ResponsePayloadKind = .rateLimits) {
+        self.kind = kind
+    }
 
     var bufferedByteCount: Int {
         lock.lock()
@@ -208,7 +296,7 @@ final class ResponseBox: @unchecked Sendable {
                 lineBuffer.removeAll(keepingCapacity: true)
 
                 do {
-                    if let response = try Self.parseRateLimitsLine(line) {
+                    if let response = try Self.parseLine(line, kind: kind) {
                         storedResult = .success(response)
                         semaphore.signal()
                         return
@@ -235,6 +323,22 @@ final class ResponseBox: @unchecked Sendable {
     }
 
     func result() -> Result<RateLimitsResponse, Error>? {
+        mapResult { payload in
+            guard case .rateLimits(let response) = payload else { throw FetchError.invalidOutput }
+            return response
+        }
+    }
+
+    func rateLimitsResult() -> Result<RateLimitsResponse, Error>? { result() }
+
+    func resetConsumeResult() -> Result<ResetCreditConsumeResponse, Error>? {
+        mapResult { payload in
+            guard case .resetConsume(let response) = payload else { throw FetchError.invalidOutput }
+            return response
+        }
+    }
+
+    func payloadResult() -> Result<AppServerResponsePayload, Error>? {
         lock.lock()
         defer { lock.unlock() }
         if let storedResult {
@@ -246,6 +350,17 @@ final class ResponseBox: @unchecked Sendable {
         return nil
     }
 
+    private func mapResult<Value>(_ transform: (AppServerResponsePayload) throws -> Value) -> Result<Value, Error>? {
+        guard let result = payloadResult() else { return nil }
+        switch result {
+        case .success(let payload):
+            do { return .success(try transform(payload)) }
+            catch { return .failure(error) }
+        case .failure(let error):
+            return .failure(error)
+        }
+    }
+
     func markTerminated(_ status: Int32) {
         lock.lock()
         defer { lock.unlock() }
@@ -254,7 +369,7 @@ final class ResponseBox: @unchecked Sendable {
         semaphore.signal()
     }
 
-    private static func parseRateLimitsLine(_ line: Data) throws -> RateLimitsResponse? {
+    private static func parseLine(_ line: Data, kind: ResponsePayloadKind) throws -> AppServerResponsePayload? {
         guard let decodedLine = String(data: line, encoding: .utf8) else {
             throw FetchError.invalidOutput
         }
@@ -292,7 +407,12 @@ final class ResponseBox: @unchecked Sendable {
 
         do {
             let resultData = try JSONSerialization.data(withJSONObject: result)
-            return try JSONDecoder().decode(RateLimitsResponse.self, from: resultData)
+            switch kind {
+            case .rateLimits:
+                return .rateLimits(try JSONDecoder().decode(RateLimitsResponse.self, from: resultData))
+            case .resetConsume:
+                return .resetConsume(try JSONDecoder().decode(ResetCreditConsumeResponse.self, from: resultData))
+            }
         } catch {
             throw FetchError.invalidOutput
         }
