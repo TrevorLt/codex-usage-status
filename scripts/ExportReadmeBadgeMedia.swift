@@ -8,7 +8,7 @@ import UniformTypeIdentifiers
 private enum ExportReadmeBadgeMedia {
     private static let canvasSize = NSSize(width: 300, height: 100)
     private static let menuBarSampleSize = NSSize(width: 213, height: 67)
-    private static let pixelScale = 1
+    private static let animationPixelScale = 2
     private static let framesPerSecond = 24.0
     private static let repeatPause = 1.5
 
@@ -152,7 +152,7 @@ private enum ExportReadmeBadgeMedia {
         now: Date,
         animationFrame: UsageBadgeAnimationFrame
     ) throws -> CGImage {
-        let bitmap = try makeBitmap(size: canvasSize)
+        let bitmap = try makeBitmap(size: canvasSize, pixelScale: animationPixelScale)
         NSGraphicsContext.saveGraphicsState()
         defer { NSGraphicsContext.restoreGraphicsState() }
         guard let context = NSGraphicsContext(bitmapImageRep: bitmap) else {
@@ -243,7 +243,7 @@ private enum ExportReadmeBadgeMedia {
         try data.write(to: url, options: .atomic)
     }
 
-    private static func makeBitmap(size: NSSize) throws -> NSBitmapImageRep {
+    private static func makeBitmap(size: NSSize, pixelScale: Int = 1) throws -> NSBitmapImageRep {
         guard let bitmap = NSBitmapImageRep(
             bitmapDataPlanes: nil,
             pixelsWide: Int(size.width) * pixelScale,
@@ -332,8 +332,10 @@ private enum ExportReadmeBadgeMedia {
         guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
               let properties = CGImageSourceCopyProperties(source, nil) as? [CFString: Any],
               let gifProperties = properties[kCGImagePropertyGIFDictionary] as? [CFString: Any],
+              (gifProperties[kCGImagePropertyGIFCanvasPixelWidth] as? NSNumber)?.intValue == Int(canvasSize.width) * animationPixelScale,
+              (gifProperties[kCGImagePropertyGIFCanvasPixelHeight] as? NSNumber)?.intValue == Int(canvasSize.height) * animationPixelScale,
               (gifProperties[kCGImagePropertyGIFLoopCount] as? NSNumber)?.intValue == 0 else {
-            throw ExportError.gifLoopVerificationFailed
+            throw ExportError.gifMetadataVerificationFailed
         }
 
         var delays: [Double] = []
@@ -363,7 +365,7 @@ private enum ExportReadmeBadgeMedia {
         case pngEncodingFailed
         case gifDestinationUnavailable
         case gifEncodingFailed
-        case gifLoopVerificationFailed
+        case gifMetadataVerificationFailed
         case gifPauseVerificationFailed
     }
 }
