@@ -253,7 +253,9 @@ struct BadgeRenderingAudit {
         check(stale.image.tiffRepresentation != fresh.image.tiffRepresentation,
             "stale marker remains in the compatibility image layer")
 
-        try verifyAppearanceObserver(app: app, usage: mixedUsage, check: check)
+        for (condition, message) in try verifyAppearanceObserver(app: app, usage: mixedUsage) {
+            check(condition, message)
+        }
 
         print("BADGE RENDERING PASS: \(assertions) assertions; AppKit button composition, both styles and appearances")
     }
@@ -261,9 +263,8 @@ struct BadgeRenderingAudit {
     @MainActor
     private static func verifyAppearanceObserver(
         app: NSApplication,
-        usage: UsageSummary,
-        check: @MainActor (Bool, String) -> Void
-    ) throws {
+        usage: UsageSummary
+    ) throws -> [(Bool, String)] {
         let originalAppearance = app.appearance
         defer { app.appearance = originalAppearance }
         app.appearance = NSAppearance(named: .aqua)
@@ -282,9 +283,12 @@ struct BadgeRenderingAudit {
 
         app.appearance = NSAppearance(named: .darkAqua)
         RunLoop.main.run(until: Date().addingTimeInterval(0.15))
-        check(callbackImageIsTemplate, "appearance observer rebuilds a template base")
-        check(callbackHasWarningOverlay, "appearance observer retains the separate warning overlay")
+        let checks = [
+            (callbackImageIsTemplate, "appearance observer rebuilds a template base"),
+            (callbackHasWarningOverlay, "appearance observer retains the separate warning overlay"),
+        ]
         withExtendedLifetime(observer) {}
+        return checks
     }
 
     @MainActor
