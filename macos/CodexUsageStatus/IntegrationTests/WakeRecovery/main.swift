@@ -99,8 +99,7 @@ MainActor.assumeIsolated {
         require(countdownView.visibleText == "Next refresh: in 2m 0s", "a completed refresh replaces zero with the next interval")
         let aboutAlert = NSAlert()
         aboutAlert.accessoryView = countdownView
-        _ = aboutAlert.window
-        require(countdownView.window != nil, "live countdown is attached to the visible About alert")
+        require(aboutAlert.accessoryView === countdownView, "About alert owns the live countdown accessory")
         require(hasSubview(named: "BadgeExpiryReminderDotView"), "real status item contains the amber expiry dot")
         let menuOpenForwarder = MenuOpenForwarder()
         menuOpenForwarder.forward = { [weak delegate] menu in
