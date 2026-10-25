@@ -8,6 +8,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let menu = NSMenu()
 
     private let refreshItem = NSMenuItem(title: "Refresh", action: #selector(refreshFromMenu), keyEquivalent: "r")
+    private let resetReminderMenuContent = ResetReminderMenuContent()
     private let displayStyleItem = NSMenuItem(title: "Display Style", action: nil, keyEquivalent: "")
     private let displayStyleMenu = NSMenu()
     private let doubleRingItem = NSMenuItem(title: BadgeStyle.doubleRing.menuTitle, action: #selector(selectDoubleRingStyle), keyEquivalent: "")
@@ -15,12 +16,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let launchAtLoginItem = NSMenuItem(title: "Launch at Login", action: #selector(toggleLaunchAtLogin), keyEquivalent: "")
     private let aboutItem = NSMenuItem(title: "About", action: #selector(showAbout), keyEquivalent: ",")
     private let loginItemController = LoginItemController()
+    private let resetExpiryDismissalStore: ResetExpiryDismissalStore
+    private let resetConsumptionAttemptStore: ResetConsumptionAttemptStore
+    private let resetRedemptionFlow: ResetRedemptionFlow
 
     private var timer: Timer?
     private var displayValidityTimer: Timer?
     private var aboutRefreshTimer: Timer?
+    private var badgeAnimationTimer: Timer?
+    private var badgeTransition: UsageBadgeTransition?
+    private var badgeAnimationFrame: UsageBadgeAnimationFrame?
     private weak var aboutAlert: NSAlert?
+    private var aboutCountdownView: AboutRefreshCountdownView?
     private var isRefreshing = false
+    private var isConsumingReset = false
     private var refreshPolicy = RefreshPolicy()
     private var badgeStyle = BadgeStyle.load()
     private var lastUsage: UsageSummary?
@@ -37,16 +46,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var networkWasReachable: Bool?
     private let monotonicNow: @MainActor () -> TimeInterval
 
-    init(monotonicNow: @escaping @MainActor () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }) {
+    init(
+        monotonicNow: @escaping @MainActor () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
+        resetExpiryDismissalStore: ResetExpiryDismissalStore = ResetExpiryDismissalStore(),
+        resetConsumptionAttemptStore: ResetConsumptionAttemptStore = ResetConsumptionAttemptStore(),
+        resetRedemptionFlow: ResetRedemptionFlow = ResetRedemptionFlow(client: CodexResetRedemptionClient())
+    ) {
         self.monotonicNow = monotonicNow
+        self.resetExpiryDismissalStore = resetExpiryDismissalStore
+        self.resetConsumptionAttemptStore = resetConsumptionAttemptStore
+        self.resetRedemptionFlow = resetRedemptionFlow
         super.init()
     }
 
     private lazy var dateFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.locale = Locale.current
+        formatter.timeZone = TimeZone.current
         formatter.dateStyle = .medium
         formatter.timeStyle = .medium
+        return formatter
+    }()
+
+    private lazy var resetDateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone.current
+        formatter.dateFormat = "MMM d"
         return formatter
     }()
 
@@ -57,7 +83,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if let button = statusItem.button {
             button.title = ""
             button.imagePosition = .imageOnly
-            button.toolTip = "Codex usage: waiting for first refresh"
+            button.toolTip = "Waiting for first refresh"
+            button.setAccessibilityLabel("Waiting for first refresh")
         }
         appearanceObserver = ApplicationAppearanceObserver { [weak self] in
             self?.renderCurrentBadge()
@@ -66,6 +93,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         refreshItem.target = self
         menu.addItem(refreshItem)
+
+        resetReminderMenuContent.setTargets(
+            self,
+            viewAction: #selector(viewOrUseResets),
+            dismissAction: #selector(dismissResetExpiryReminder)
+        )
+        menu.addItem(resetReminderMenuContent.item)
 
         doubleRingItem.target = self
         largeReadoutItem.target = self
@@ -113,6 +147,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         timer?.invalidate()
         displayValidityTimer?.invalidate()
         aboutRefreshTimer?.invalidate()
+        badgeAnimationTimer?.invalidate()
         pathMonitor.cancel()
         NSWorkspace.shared.notificationCenter.removeObserver(self)
     }
@@ -122,7 +157,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     func menuWillOpen(_ menu: NSMenu) {
-        renderCurrentBadge()
         updateLaunchAtLoginMenuState()
     }
 
@@ -132,6 +166,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         lifecycleGeneration += 1
         timer?.invalidate()
         displayValidityTimer?.invalidate()
+        stopBadgeAnimation()
         nextRefreshAt = nil
     }
 
@@ -197,9 +232,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let alert = NSAlert()
         alert.messageText = "About Codex Usage Status"
         alert.addButton(withTitle: "OK")
+        let countdownView = AboutRefreshCountdownView()
+        alert.accessoryView = countdownView
 
         aboutRefreshTimer?.invalidate()
         aboutAlert = alert
+        aboutCountdownView = countdownView
         updateAboutAlert()
 
         let refreshTimer = Timer(timeInterval: 1, target: self, selector: #selector(aboutRefreshTimerDidFire), userInfo: nil, repeats: true)
@@ -209,6 +247,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             refreshTimer.invalidate()
             if aboutRefreshTimer === refreshTimer { aboutRefreshTimer = nil }
             if aboutAlert === alert { aboutAlert = nil }
+            if aboutCountdownView === countdownView { aboutCountdownView = nil }
         }
 
         alert.runModal()
@@ -219,14 +258,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     private func updateAboutAlert() {
-        guard let alert = aboutAlert else { return }
+        guard let alert = aboutAlert, let countdownView = aboutCountdownView else { return }
         alert.informativeText = aboutMessage()
+        countdownView.update(nextRefreshAt: nextRefreshAt, isRefreshing: isRefreshing, isSleeping: isSleeping)
     }
 
     private func aboutMessage() -> String {
+        let aboutFormatter = dateFormatter
+        aboutFormatter.locale = Locale.current
+        aboutFormatter.timeZone = TimeZone.current
+
         var status: String
         if let lastUsage {
-            status = lastUsage.tooltip(formatter: dateFormatter)
+            status = lastUsage.tooltip(formatter: aboutFormatter)
             if let lastError { status += "\nLast refresh failed: \(lastError.localizedDescription)" }
         } else if let lastError {
             status = "Last refresh failed: \(lastError.localizedDescription)"
@@ -234,23 +278,155 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             status = "Waiting for first refresh"
         }
 
-        let lastRefresh = lastRefreshDate.map { dateFormatter.string(from: $0) } ?? "Never"
-        let nextRefresh = nextRefreshAt.map {
-            "in \(max(0, Int(ceil($0.timeIntervalSinceNow)))) seconds"
-        } ?? (isSleeping ? "after wake" : "in progress")
+        let lastRefresh = lastRefreshDate.map { aboutFormatter.string(from: $0) } ?? "Never"
         let appVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "unknown"
         let codexPath = CodexPathResolver.firstExecutablePath(in: CodexPathResolver.candidatePaths()) ?? "not found in known locations"
+        let resetExpiryLines = ResetCreditExpiryDetails(credits: lastUsage?.resetCredits)
+            .aboutLines(dateFormatter: aboutFormatter)
+        let resetExpirySection = resetExpiryLines.isEmpty
+            ? ""
+            : "\n\nEarned reset expirations:\n" + resetExpiryLines.joined(separator: "\n")
         return """
-        \(status)
+        \(status)\(resetExpirySection)
 
         App version: \(appVersion)
         Display style: \(badgeStyle.menuTitle)
-        Next refresh: \(nextRefresh)
         Failure retry: \(Int(AppConfig.errorRetryInterval)) seconds
         Last refresh: \(lastRefresh)
         Codex executable: \(codexPath)
         Data source: local Codex app-server
         """
+    }
+
+    @objc private func viewOrUseResets() {
+        guard let resetSummary = lastUsage?.resetCredits,
+              resetSummary.availableCount > 0 else {
+            showResetNotice(title: "No reset available", message: "No earned reset is available in the latest account read. Refresh usage and try again.")
+            return
+        }
+        guard let accountID = lastUsage?.accountID, !accountID.isEmpty else {
+            showResetNotice(
+                title: "Account unavailable",
+                message: ResetConsumptionAttemptStoreError.accountIdentityUnavailable.localizedDescription
+            )
+            return
+        }
+        if resetConsumptionAttemptStore.hasUnresolvedAttempt(forAccountID: accountID) {
+            showResetNotice(
+                title: "Previous reset unresolved",
+                message: ResetConsumptionAttemptStoreError.unresolvedAttemptForDifferentAccount.localizedDescription
+            )
+            return
+        }
+
+        let selectedCredit = (resetSummary.credits ?? [])
+            .compactMap { credit -> (RateLimitResetCredit, Date)? in
+                guard let expiry = credit.availableCodexExpiry, expiry > Date() else { return nil }
+                return (credit, expiry)
+            }
+            .sorted { $0.1 < $1.1 }
+            .first?.0
+
+        let alert = NSAlert()
+        alert.messageText = "Use one earned reset?"
+        if let expiry = selectedCredit?.availableCodexExpiry {
+            let expiryText = resetDateFormatter.string(from: expiry)
+            alert.informativeText = "This will immediately use one reset credit, expiring \(expiryText), through Codex. The action cannot be undone."
+        } else {
+            alert.informativeText = "This will immediately use one reset credit chosen by Codex. The action cannot be undone."
+        }
+        alert.addButton(withTitle: "Use reset")
+        alert.addButton(withTitle: "Close")
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        consumeReset(creditID: selectedCredit?.id, accountID: accountID)
+    }
+
+    private func consumeReset(creditID: String?, accountID: String) {
+        guard !isConsumingReset else { return }
+        let attempt: PendingResetConsumptionAttempt
+        do {
+            attempt = try resetConsumptionAttemptStore.begin(creditID: creditID, accountID: accountID)
+        } catch {
+            showResetNotice(title: "Previous reset unresolved", message: error.localizedDescription)
+            return
+        }
+        isConsumingReset = true
+        renderCurrentBadge()
+
+        Task { [weak self] in
+            guard let self else { return }
+            let result = await self.resetRedemptionFlow.redeem(
+                creditID: attempt.creditID,
+                idempotencyKey: attempt.idempotencyKey,
+                previousUsage: self.lastUsage,
+                now: Date()
+            )
+            switch result {
+            case .confirmed(let usage, let changedWindows):
+                self.applyUsage(usage, confirmedResetWindows: changedWindows)
+                self.resetConsumptionAttemptStore.clear()
+                self.showResetNotice(title: "Reset used", message: "Codex confirmed the reset and the usage status has been refreshed.")
+            case .refreshPending(let detail):
+                self.lastError = ResetRedemptionFlowError(message: detail)
+                self.renderCurrentBadge()
+                self.showResetNotice(
+                    title: "Reset sent; refresh pending",
+                    message: "Codex accepted this redemption, but the latest usage could not be read. Retry the reset action to check the same redemption safely, or refresh again later. Details: \(detail)"
+                )
+            case .nothingToReset:
+                self.resetConsumptionAttemptStore.clear()
+                self.showResetNotice(title: "Nothing to reset", message: "Codex has no rate-limit window eligible for a reset right now.")
+                self.refresh(manual: true)
+            case .noCredit:
+                self.resetConsumptionAttemptStore.clear()
+                self.showResetNotice(title: "No reset available", message: "Codex reports that no earned reset credit is available.")
+                self.refresh(manual: true)
+            case .preflightFailed(let detail):
+                self.resetConsumptionAttemptStore.clear()
+                self.showResetNotice(
+                    title: "Account could not be verified",
+                    message: "No reset request was sent. Refresh usage and try again. Details: \(detail)"
+                )
+            case .accountChanged:
+                self.resetConsumptionAttemptStore.clear()
+                self.showResetNotice(
+                    title: "Codex account changed",
+                    message: "No reset request was sent. Refresh usage, then confirm the reset for the active account."
+                )
+            case .accountIdentityUnavailable:
+                self.resetConsumptionAttemptStore.clear()
+                self.showResetNotice(
+                    title: "Account unavailable",
+                    message: ResetConsumptionAttemptStoreError.accountIdentityUnavailable.localizedDescription
+                )
+            case .statusUnclear(let detail):
+                self.showResetNotice(
+                    title: "Reset status unclear",
+                    message: "The app could not confirm whether Codex used the reset. Retry this action to check the same redemption safely. Details: \(detail)"
+                )
+            }
+            self.isConsumingReset = false
+            self.renderCurrentBadge()
+        }
+    }
+
+    private func showResetNotice(title: String, message: String) {
+        let alert = NSAlert()
+        alert.messageText = title
+        alert.informativeText = message
+        alert.addButton(withTitle: "OK")
+        alert.runModal()
+    }
+
+    @objc private func dismissResetExpiryReminder() {
+        let now = Date()
+        guard let accountID = lastUsage?.accountID,
+              let reminder = currentResetExpiryReminder(at: now),
+              !reminder.expiringCredits.isEmpty else {
+            return
+        }
+        resetExpiryDismissalStore.dismiss(reminder.expiringCredits, accountID: accountID, now: now)
+        renderCurrentBadge()
     }
 
     private func setBadgeStyle(_ style: BadgeStyle) {
@@ -297,6 +473,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         nextRefreshAt = nil
         refreshItem.isEnabled = false
         refreshItem.title = "Refreshing..."
+        renderCurrentBadge()
 
         Task { [weak self] in
             guard let self else {
@@ -341,8 +518,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         timer?.invalidate()
         guard !isSleeping else { nextRefreshAt = nil; return }
         nextRefreshAt = Date().addingTimeInterval(seconds)
-        timer = Timer.scheduledTimer(timeInterval: seconds, target: self, selector: #selector(timerDidFire), userInfo: nil, repeats: false)
+        let refreshTimer = Timer(timeInterval: seconds, target: self, selector: #selector(timerDidFire), userInfo: nil, repeats: false)
+        timer = refreshTimer
         timer?.tolerance = seconds * AppConfig.timerToleranceRatio
+        RunLoop.main.add(refreshTimer, forMode: .common)
     }
 
     private func finishPendingRecovery() {
@@ -351,12 +530,69 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         requestRecoveryRefresh()
     }
 
-    private func applyUsage(_ usage: UsageSummary) {
+    private func applyUsage(_ usage: UsageSummary, confirmedResetWindows: Set<UsageWindowKind> = []) {
+        let previousUsage = lastUsage
+        resetExpiryDismissalStore.prepare(accountID: usage.accountID)
         lastUsage = usage
         lastRefreshDate = Date()
         lastError = nil
         isAwaitingFreshRead = false
+        startBadgeTransition(from: previousUsage, to: usage, resetWindows: confirmedResetWindows)
         renderCurrentBadge()
+    }
+
+    private func startBadgeTransition(
+        from previous: UsageSummary?,
+        to current: UsageSummary,
+        resetWindows: Set<UsageWindowKind>
+    ) {
+        let currentVisualFrame = badgeAnimationFrame
+        stopBadgeAnimation()
+        guard let previous else { return }
+
+        let transition = UsageBadgeTransition(
+            fromFiveHour: currentVisualFrame?.fiveHourPercent ?? Double(previous.fiveHour.remainingPercent),
+            fromWeekly: currentVisualFrame?.weeklyPercent ?? Double(previous.weekly.remainingPercent),
+            toFiveHour: Double(current.fiveHour.remainingPercent),
+            toWeekly: Double(current.weekly.remainingPercent),
+            startUptime: monotonicNow(),
+            resetWindows: resetWindows
+        )
+        guard abs(transition.fromFiveHour - transition.toFiveHour) >= 0.01
+                || abs(transition.fromWeekly - transition.toWeekly) >= 0.01 else {
+            return
+        }
+
+        badgeTransition = transition
+        badgeAnimationFrame = transition.frame(at: monotonicNow())
+        let animationTimer = Timer(timeInterval: 1.0 / 30.0, target: self,
+                                   selector: #selector(badgeAnimationTimerDidFire), userInfo: nil, repeats: true)
+        badgeAnimationTimer = animationTimer
+        RunLoop.main.add(animationTimer, forMode: .common)
+    }
+
+    private func stopBadgeAnimation() {
+        badgeAnimationTimer?.invalidate()
+        badgeAnimationTimer = nil
+        badgeTransition = nil
+        badgeAnimationFrame = nil
+    }
+
+    @objc private func badgeAnimationTimerDidFire() {
+        guard let transition = badgeTransition else {
+            stopBadgeAnimation()
+            renderCurrentBadge()
+            return
+        }
+
+        let frame = transition.frame(at: monotonicNow())
+        badgeAnimationFrame = frame
+        if frame.isComplete {
+            stopBadgeAnimation()
+            renderCurrentBadge()
+        } else {
+            renderBadgeVisual(updateAccessibility: false, resetReminder: currentResetExpiryReminder(at: Date()))
+        }
     }
 
     private func applyError(_ error: Error) {
@@ -367,6 +603,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func renderCurrentBadge() {
         scheduleDisplayValidityCheck()
         statusItem.length = UsageBadgeRenderer.statusItemLength(for: badgeStyle)
+        let resetReminder = currentResetExpiryReminder(at: Date())
+        updateResetReminderMenu(for: resetReminder)
+        renderBadgeVisual(updateAccessibility: true, resetReminder: resetReminder)
+    }
+
+    private func renderBadgeVisual(updateAccessibility: Bool, resetReminder: ResetExpiryReminder?) {
         if let button = statusItem.button {
             button.title = ""
             let appearance = button.effectiveAppearance
@@ -375,21 +617,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 let age = Date().timeIntervalSince(lastRefreshDate)
                 let cacheExpired = age < 0 || age > 86_400
                 let stale = lastError != nil || isAwaitingFreshRead || cacheExpired || age > max(120, refreshPolicy.currentInterval * 2)
-                    || lastUsage.fiveHour.isExpired(at: Date()) || lastUsage.weekly.isExpired(at: Date())
-                let rendering = UsageBadgeRenderer.rendering(for: lastUsage, style: badgeStyle, appearance: appearance, isStale: stale, hideReadings: cacheExpired)
+                let now = Date()
+                var staleWindows = Set<UsageWindowKind>()
+                if stale && !lastUsage.fiveHour.isExpired(at: now) { staleWindows.insert(.fiveHour) }
+                if stale && !lastUsage.weekly.isExpired(at: now) { staleWindows.insert(.weekly) }
+                let rendering = UsageBadgeRenderer.rendering(
+                    for: lastUsage,
+                    style: badgeStyle,
+                    appearance: appearance,
+                    staleWindows: staleWindows,
+                    hideReadings: cacheExpired,
+                    showExpiryReminder: resetReminder.map { !$0.expiringCredits.isEmpty } ?? false,
+                    animationFrame: badgeAnimationFrame
+                )
                 UsageBadgeRenderer.apply(rendering, to: button)
-                var tooltip = stale ? "Last known readings (~ means awaiting a successful update)\n" : ""
-                tooltip += cacheExpired ? "Cached readings expired; waiting for a successful update" : lastUsage.tooltip(formatter: dateFormatter)
-                tooltip += "\nLast successful read: \(dateFormatter.string(from: lastRefreshDate))"
-                if let lastError { tooltip += "\nRefresh failed: \(lastError.localizedDescription)" }
-                button.toolTip = tooltip
-                button.setAccessibilityLabel(tooltip)
-            } else if let lastError {
-                UsageBadgeRenderer.apply(UsageBadgeRendering(image: UsageBadgeRenderer.errorImage(style: badgeStyle, appearance: appearance), warningOverlay: nil), to: button)
-                button.toolTip = "Codex usage: \(lastError.localizedDescription)"
+                if updateAccessibility {
+                    let tooltip = lastUsage.hoverTooltip(showingLastKnownReadings: stale)
+                    button.toolTip = tooltip
+                    button.setAccessibilityLabel(tooltip)
+                }
+            } else if lastError != nil {
+                UsageBadgeRenderer.apply(UsageBadgeRendering(image: UsageBadgeRenderer.errorImage(style: badgeStyle, appearance: appearance), warningOverlay: nil, expiryReminder: false), to: button)
+                if updateAccessibility {
+                    button.toolTip = "Usage unavailable"
+                    button.setAccessibilityLabel("Usage unavailable")
+                }
             } else {
-                UsageBadgeRenderer.apply(UsageBadgeRendering(image: UsageBadgeRenderer.placeholderImage(style: badgeStyle, appearance: appearance), warningOverlay: nil), to: button)
-                button.toolTip = "Codex usage: waiting for first refresh"
+                UsageBadgeRenderer.apply(UsageBadgeRendering(image: UsageBadgeRenderer.placeholderImage(style: badgeStyle, appearance: appearance), warningOverlay: nil, expiryReminder: false), to: button)
+                if updateAccessibility {
+                    button.toolTip = "Waiting for first refresh"
+                    button.setAccessibilityLabel("Waiting for first refresh")
+                }
             }
         }
     }
@@ -404,13 +662,44 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let now = Date()
         let candidates = [lastUsage.fiveHour.resetsAt, lastUsage.weekly.resetsAt,
                           lastRefreshDate.addingTimeInterval(86_400),
-                          lastRefreshDate.addingTimeInterval(max(120, refreshPolicy.currentInterval * 2))]
+                          lastRefreshDate.addingTimeInterval(ResetReminderFreshness.maximumAge(refreshInterval: refreshPolicy.currentInterval))]
             .compactMap { $0 }.filter { $0 > now }
-        guard let deadline = candidates.min() else { return }
+        let resetTransitions = (lastUsage.resetCredits?.credits ?? [])
+            .compactMap(\.availableCodexExpiry)
+            .flatMap { [$0.addingTimeInterval(-ResetExpiryReminder.threshold), $0] }
+            .filter { $0 > now }
+        let reminderTransition = currentResetExpiryReminder(at: now)?.nextDisplayTransition(after: now)
+        let deadline = (candidates + resetTransitions + [reminderTransition].compactMap { $0 }).min()
+        guard let deadline else { return }
         // A local one-shot redraw at expiry, not an additional account query.
         let validityTimer = Timer(timeInterval: max(0.05, deadline.timeIntervalSince(now)), target: self,
                                   selector: #selector(displayValidityDidChange), userInfo: nil, repeats: false)
         RunLoop.main.add(validityTimer, forMode: .common)
         displayValidityTimer = validityTimer
     }
+
+    private func currentResetExpiryReminder(at now: Date) -> ResetExpiryReminder? {
+        guard let usage = lastUsage,
+              let accountID = usage.accountID,
+              ResetReminderFreshness.canPresent(
+                lastRefreshDate: lastRefreshDate,
+                hasRefreshError: lastError != nil,
+                isAwaitingFreshRead: isAwaitingFreshRead,
+                refreshInterval: refreshPolicy.currentInterval,
+                now: now
+              ) else {
+            return nil
+        }
+        return ResetExpiryReminder(
+            credits: usage.resetCredits,
+            dismissedIDs: resetExpiryDismissalStore.dismissedIDs(accountID: accountID, now: now),
+            now: now
+        )
+    }
+
+    private func updateResetReminderMenu(for reminder: ResetExpiryReminder?) {
+        resetReminderMenuContent.update(reminder, dateFormatter: resetDateFormatter)
+        resetReminderMenuContent.viewItem.isEnabled = !isRefreshing && !isConsumingReset
+    }
+
 }

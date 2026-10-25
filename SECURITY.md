@@ -9,15 +9,17 @@ This project is intentionally narrow: it displays Codex usage status and nothing
 - It does not scrape browser state, browser cookies, web pages, screenshots, or OCR output.
 - It does not simulate login or retry login flows.
 - It does not modify the official Codex app bundle.
-- It does not attempt to bypass, increase, reset, purchase, or route around usage limits.
+- It does not bypass, increase, or purchase usage limits. It consumes an earned reset only after the user explicitly confirms that action.
 
 ## Data source
 
-The only supported live data source is the official local Codex app-server method:
+Usage is read through the official local Codex app-server method:
 
 ```json
-{"method":"account/rateLimits/read","id":1}
+{"method":"account/rateLimits/read","id":2}
 ```
+
+After explicit confirmation, the app can also send `account/rateLimitResetCredit/consume`. It uses the server-provided opaque credit ID when available and a persisted idempotency key for safe retries. The pending attempt stores a one-way account fingerprint so it cannot be retried against a different account. The app reads usage again after a confirmed redemption.
 
 Codex itself owns authentication and calls its own backend. This project receives only the structured rate-limit response returned by app-server.
 
