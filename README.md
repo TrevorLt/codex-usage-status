@@ -4,13 +4,25 @@
 [![Latest release](https://img.shields.io/github/v/release/TrevorLt/codex-usage-status?display_name=tag&sort=semver)](https://github.com/TrevorLt/codex-usage-status/releases/latest)
 [![License](https://img.shields.io/github/license/TrevorLt/codex-usage-status)](LICENSE)
 
-A small, read-only macOS menu-bar companion for seeing Codex 5-hour and weekly usage without opening Codex.
+A small macOS menu-bar companion for seeing Codex 5-hour and weekly usage, with an optional, explicitly confirmed action to use an earned reset.
 
 | **Double Ring** (default) | **Large Readout** |
 |:---:|:---:|
 | ![Double Ring mode with circular quota indicators](docs/assets/menu-bar-badge-double-ring.png) | ![Large Readout mode with labeled quota bars](docs/assets/menu-bar-badge-large-readout.png) |
 
 Switch between the two modes from the badge's **Display Style** menu.
+
+The 5-hour and 7-day readings animate smoothly when refreshed. A confirmed reset briefly highlights only the recovered window in green in both display modes.
+
+| **Double Ring reset animation** | **Large Readout reset animation** |
+|:---:|:---:|
+| ![Double Ring badge showing its reset recovery animation](docs/assets/badge-reset-double-ring.gif) | ![Large Readout badge showing its reset recovery animation](docs/assets/badge-reset-large-readout.gif) |
+
+These GIFs use synthetic local readings rendered by the app's AppKit badge renderer; they do not access an account or use a reset. Regenerate them with `npm run export:readme-media`.
+
+An amber dot marks an earned reset that expires within 72 hours. It stays on the badge as a quiet reminder; the menu offers a direct path to use the earliest known-expiring reset.
+
+![Amber reset-expiry reminder dot in Double Ring and Large Readout modes](docs/assets/reset-expiry-reminder.png)
 
 This repository is an independent continuation based on [tollenceld/codex-usage-status](https://github.com/tollenceld/codex-usage-status), originally created by [@tollenceld](https://github.com/tollenceld). The original project and its MIT license remain credited; this repository is maintained independently.
 
@@ -21,10 +33,10 @@ This repository is an independent continuation based on [tollenceld/codex-usage-
 | Platform | macOS 13 or later |
 | Architectures | Apple Silicon (`arm64`) and Intel (`x86_64`) |
 | Data source | The official local Codex app-server |
-| Protocol | Read-only `account/rateLimits/read` request |
+| Protocol | Reads `account/rateLimits/read`; uses a reset only after confirmation |
 | Automatic refresh | Adaptive 30 / 60 / 120 seconds |
 | Failure retry | 300 seconds |
-| Published release | [`v0.1.3`](https://github.com/TrevorLt/codex-usage-status/releases/tag/v0.1.3) |
+| Published release | [`v0.1.4`](https://github.com/TrevorLt/codex-usage-status/releases/tag/v0.1.4) |
 | License | [MIT](LICENSE) |
 
 ## What it does
@@ -36,16 +48,19 @@ This repository is an independent continuation based on [tollenceld/codex-usage-
 - Refreshes adaptively while keeping a hard 30-second minimum between automatic requests.
 - Recovers after sleep, display wake, and network recovery without duplicating requests.
 - Provides a checkable Launch at Login menu item and a live `Next refresh` countdown in About.
+- Shows a compact badge reminder when an earned reset expires within 72 hours; the menu can jump to the earliest known expiry, confirm its use, or dismiss that reminder batch.
+- Shows each earned reset's known expiration in About and formats About timestamps consistently in the current local time zone.
+- Smoothly animates quota changes and confirms reset recovery with a brief green progress animation in both display modes.
 - Includes a branded app icon and Retina-ready DMG packaging.
 
-The app is intentionally a monitor, not an account manager. It cannot log in, switch accounts, change limits, buy credits, or bypass usage limits.
+The app is a usage monitor, not an account manager. It cannot log in, switch accounts, change limits, buy credits, or bypass usage limits. It can consume one earned reset only after you choose **Use reset** and confirm.
 
 ## Download and install
 
-The latest published release is [`v0.1.3`](https://github.com/TrevorLt/codex-usage-status/releases/tag/v0.1.3). Download the artifact matching your Mac:
+The latest published release is [`v0.1.4`](https://github.com/TrevorLt/codex-usage-status/releases/tag/v0.1.4). Download the artifact matching your Mac:
 
-- Apple Silicon: `CodexUsageStatus-0.1.3-macos-arm64.dmg` or `.zip`
-- Intel: `CodexUsageStatus-0.1.3-macos-x86_64.dmg` or `.zip`
+- Apple Silicon: `CodexUsageStatus-0.1.4-macos-arm64.dmg` or `.zip`
+- Intel: `CodexUsageStatus-0.1.4-macos-x86_64.dmg` or `.zip`
 
 ### DMG
 
@@ -68,6 +83,7 @@ The app is menu-bar-only and does not appear in the Dock. The DMG uses the proje
 Click the badge to access:
 
 - `Refresh` — request an immediate update, subject to the safety floor.
+- `Use one reset…` — when a reset is available, choose **Use reset** in the confirmation dialog to consume it through Codex. The app selects the earliest known expiry when reset details are available; otherwise Codex chooses an available reset.
 - `Display Style` — choose `Double Ring` or `Large Readout`.
 - `Launch at Login` — enable or disable the per-user LaunchAgent.
 - `About` — inspect usage, reset times, app version, executable path, and refresh state. While About is open, `Next refresh` updates once per second without issuing additional usage requests.
@@ -87,7 +103,7 @@ The normal adaptive schedule is deliberately conservative:
 
 These are scheduling targets, not exact end-to-end freshness guarantees: timer tolerance and request duration can add delay. Automatic requests never start more often than every 30 seconds.
 
-The app keeps the last successful snapshot in process memory while it revalidates. A temporary failure does not replace valid numbers with an error badge. A neutral `~` prefix beside each cached percentage means the reading is provisional; the tooltip and About panel show the last successful read and the latest error. Successful data clears the stale state. The center divider remains a normal dot.
+The app keeps the last successful snapshot in process memory while it revalidates. A temporary failure does not replace valid numbers with an error badge. A neutral `~` prefix beside each cached percentage means the reading is provisional; the tooltip and About panel show the last successful read and the latest error. Successful data clears the stale state. The two readings have no center separator dot in either display mode.
 
 After sleep or display wake, the app redraws immediately and schedules one coalesced recovery refresh. Each window is hidden after its own known reset time without an extra account request. Cached readings expire from display after 24 hours. Disk quota caching is intentionally not enabled because the local response does not safely identify an account.
 
@@ -101,7 +117,8 @@ If the badge shows `?`, hover it or open `About` first; the app reports a safe f
 
 The app is intentionally narrow:
 
-- It calls only the local Codex app-server method `account/rateLimits/read`.
+- It reads usage through the local Codex app-server method `account/rateLimits/read`.
+- It calls `account/rateLimitResetCredit/consume` only after you explicitly confirm **Use reset**. A pending idempotency key, selected opaque credit ID, and one-way account fingerprint may be kept locally until the result is confirmed, so a retry stays bound to the same account.
 - It does not read `~/.codex/auth.json`.
 - It does not read or store tokens, cookies, sessions, OAuth credentials, refresh tokens, API keys, passwords, browser storage, or chat history.
 - It does not scrape Codex or browser pages, use screenshots/OCR, automate login, or modify the official Codex app.
@@ -160,6 +177,10 @@ BUILD_ARCH=x86_64 npm run build:macos
 ```
 
 `npm run test:native` covers policy/domain behavior, executable discovery, subprocess faults, installer migration, LaunchAgent handling, sleep/wake recovery, and AppKit badge rendering. Its GUI harnesses require a logged-in macOS graphical session; a GUI process that exits without its explicit PASS marker is treated as a failure.
+
+`npm run test:badge-animation` checks animation frames without AppKit or real-time waits. `npm run test:reset-flow` exercises reset success, fresh reads, unchanged windows, and failure paths against a fake client; it never calls the account reset endpoint. The native suite also checks rendered reset highlights, stale-number layout, and exact About expiry lines.
+
+To inspect frames manually, run `npm run preview:badge-animations`. The standalone preview window shows both display styles in light and dark appearances. Select a normal refresh, confirmed 5h/7-day reset, unchanged reset result, reset-expiry reminder, or last-known state, then drag the timeline or press Play. It uses synthetic local values and cannot redeem a real reset.
 
 For release artifacts, the repository also verifies app identity, architecture, code-signing structure, icon embedding, DMG contents, and SHA-256 checksums. See [the release checklist](docs/release-checklist.md).
 
