@@ -149,7 +149,11 @@ MainActor.assumeIsolated {
         while CodexUsageFetcher.count == beforeLowUsage && ProcessInfo.processInfo.systemUptime < lowUsageDeadline {
             try? await Task.sleep(for: .milliseconds(100))
         }
-        try? await Task.sleep(for: .milliseconds(150))
+        let warningDeadline = ProcessInfo.processInfo.systemUptime + 2
+        while !(hasSubview(named: "BadgeWarningOverlayView") && hasSubview(named: "BadgeExpiryReminderDotView"))
+                && ProcessInfo.processInfo.systemUptime < warningDeadline {
+            try? await Task.sleep(for: .milliseconds(50))
+        }
         require(hasSubview(named: "BadgeWarningOverlayView") && hasSubview(named: "BadgeExpiryReminderDotView"), "actual red low-usage and amber expiry overlays coexist")
         CodexUsageFetcher.fiveHourUsedPercent = 35.1
         let beforeNormalUsage = CodexUsageFetcher.count
