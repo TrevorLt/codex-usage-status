@@ -173,8 +173,14 @@ struct BadgeRenderingAudit {
                         "\(style) amber reminder does not expand the status item in \(appearanceLabel)")
                     check(countAmberPixels(in: markedButton.bitmap, xRange: 80..<90, yRange: 17..<24) > 0,
                         "\(style) amber reminder is visible at the fixed top-right in \(appearanceLabel)")
-                    check(countAmberPixels(in: plainButton.bitmap) == 0,
-                        "\(style) normal state has no amber reminder in \(appearanceLabel)")
+                    check(markedButton.hasExpiryReminderDot && !plainButton.hasExpiryReminderDot,
+                        "\(style) reminder view appears only in the expiring state in \(appearanceLabel)")
+                    check(countDifferentPixels(
+                        in: markedButton.bitmap,
+                        and: plainButton.bitmap,
+                        xRange: 80..<86,
+                        yRange: 18..<24
+                    ) > 0, "\(style) reminder changes its top-right visual region in \(appearanceLabel)")
                     check((countRedPixels(in: markedButton.bitmap) > 0) == (remaining < 20),
                         "\(style) amber reminder composes with the existing red warning in \(appearanceLabel)")
                 }
@@ -313,7 +319,13 @@ struct BadgeRenderingAudit {
             throw AuditFailure(message: "AppKit could not allocate a button bitmap")
         }
         button.cacheDisplay(in: button.bounds, to: bitmap)
-        return RenderedButton(bitmap: bitmap, imageIsTemplate: button.image?.isTemplate == true)
+        return RenderedButton(
+            bitmap: bitmap,
+            imageIsTemplate: button.image?.isTemplate == true,
+            hasExpiryReminderDot: button.subviews.contains {
+                String(describing: type(of: $0)).contains("BadgeExpiryReminderDotView")
+            }
+        )
     }
 
     private enum PixelKind {
@@ -327,6 +339,7 @@ struct BadgeRenderingAudit {
     private struct RenderedButton {
         let bitmap: NSBitmapImageRep
         let imageIsTemplate: Bool
+        let hasExpiryReminderDot: Bool
     }
 
     @MainActor
