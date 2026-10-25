@@ -21,3 +21,9 @@ BUILD_ARCH=arm64 npm run build:macos
 BUILD_ARCH=x86_64 npm run build:macos
 dist/'Codex Usage Status.app'/Contents/MacOS/CodexUsageStatus --once
 ```
+
+When changing the badge renderer, refresh the README examples with:
+
+```sh
+npm run export:readme-media
+```
