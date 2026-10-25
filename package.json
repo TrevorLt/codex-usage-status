@@ -1,7 +1,7 @@
 {
   "name": "codex-usage-status",
-  "version": "0.1.3",
-  "description": "Read-only Codex usage status via the official local app-server.",
+  "version": "0.1.4",
+  "description": "Codex usage status with user-confirmed reset redemption via the official local app-server.",
   "type": "module",
   "private": true,
   "bin": {
@@ -11,6 +11,10 @@
     "test": "node --test ./test/*.test.js",
     "check": "node --test ./test/*.test.js",
     "test:native": "bash ./scripts/test-native.sh",
+    "test:badge-animation": "bash ./scripts/test-badge-animation.sh",
+    "test:reset-flow": "bash ./scripts/test-reset-redemption-flow.sh",
+    "preview:badge-animations": "bash ./scripts/preview-badge-animations.sh",
+    "export:readme-media": "bash ./scripts/export-readme-badge-media.sh",
     "test:swiftpm": "bash scripts/test-swiftpm.sh",
     "usage": "node ./src/cli.js",
     "usage:json": "node ./src/cli.js --json",

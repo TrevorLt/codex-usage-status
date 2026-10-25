@@ -39,6 +39,24 @@ if case .failure(let error) = authError.result(), let fetchError = error as? Fet
     expect(false, "authentication error did not propagate")
 }
 
+let resetConsumed = ResponseBox(kind: .resetConsume)
+resetConsumed.append(Data((#"{"id":2,"result":{"outcome":"reset"}}"# + "\n").utf8))
+_ = resetConsumed.wait(timeout: .now() + 1)
+if case .success(let outcome) = resetConsumed.resetConsumeResult() {
+    expect(outcome.outcome == "reset", "earned reset response outcome was not decoded")
+} else {
+    expect(false, "earned reset response did not propagate")
+}
+
+let resetNoCredit = ResponseBox(kind: .resetConsume)
+resetNoCredit.append(Data((#"{"id":2,"result":{"outcome":"noCredit"}}"# + "\n").utf8))
+_ = resetNoCredit.wait(timeout: .now() + 1)
+if case .success(let outcome) = resetNoCredit.resetConsumeResult() {
+    expect(outcome.outcome == "noCredit", "no-credit response outcome was not preserved")
+} else {
+    expect(false, "no-credit response did not propagate")
+}
+
 let sensitiveError = ResponseBox()
 sensitiveError.append(Data((#"{"id":2,"error":{"message":"Bearer sk-secret-token"}}"# + "\n").utf8))
 _ = sensitiveError.wait(timeout: .now() + 1)

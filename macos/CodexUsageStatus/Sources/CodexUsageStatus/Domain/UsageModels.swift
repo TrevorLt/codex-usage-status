@@ -1,8 +1,349 @@
 import Foundation
+import CryptoKit
+
+enum UsageWindowKind: Hashable, Sendable {
+    case fiveHour
+    case weekly
+}
 
 struct RateLimitsResponse: Decodable, Sendable {
     let rateLimits: RateLimitSnapshot?
     let rateLimitsByLimitId: [String: RateLimitSnapshot]?
+    let rateLimitResetCredits: RateLimitResetCredits?
+    let accountId: String?
+
+    init(
+        rateLimits: RateLimitSnapshot?,
+        rateLimitsByLimitId: [String: RateLimitSnapshot]?,
+        rateLimitResetCredits: RateLimitResetCredits? = nil,
+        accountId: String? = nil
+    ) {
+        self.rateLimits = rateLimits
+        self.rateLimitsByLimitId = rateLimitsByLimitId
+        self.rateLimitResetCredits = rateLimitResetCredits
+        self.accountId = accountId
+    }
+}
+
+struct RateLimitResetCredits: Decodable, Sendable {
+    let availableCount: Int
+    let credits: [RateLimitResetCredit]?
+}
+
+struct RateLimitResetCredit: Decodable, Sendable, Equatable {
+    let id: String?
+    let resetType: String?
+    let status: String?
+    let grantedAt: TimeInterval?
+    let expiresAt: TimeInterval?
+    let title: String?
+    let description: String?
+
+    var availableCodexExpiry: Date? {
+        guard let id, !id.isEmpty,
+              resetType == "codexRateLimits",
+              status == "available",
+              let expiresAt, expiresAt.isFinite else {
+            return nil
+        }
+        return Date(timeIntervalSince1970: expiresAt)
+    }
+}
+
+/// Expiration timestamps that About can show for each currently available reset.
+/// Missing detail rows remain explicit so the UI never invents an expiration.
+struct ResetCreditExpiryDetails: Sendable {
+    let expirations: [Date?]
+
+    init(credits summary: RateLimitResetCredits?) {
+        guard let summary else {
+            expirations = []
+            return
+        }
+
+        let count = max(0, summary.availableCount)
+        guard count > 0 else {
+            expirations = []
+            return
+        }
+
+        let knownExpirations = (summary.credits ?? [])
+            .filter { $0.resetType == "codexRateLimits" && $0.status == "available" }
+            .compactMap { credit -> Date? in
+                guard let timestamp = credit.expiresAt, timestamp.isFinite else { return nil }
+                return Date(timeIntervalSince1970: timestamp)
+            }
+            .sorted()
+            .prefix(count)
+
+        let known = Array(knownExpirations)
+        expirations = known.map(Optional.some)
+            + Array(repeating: nil, count: max(0, count - known.count))
+    }
+
+    func aboutLines(dateFormatter: DateFormatter) -> [String] {
+        expirations.enumerated().map { index, expiry in
+            let value = expiry.map { dateFormatter.string(from: $0) } ?? "expiration time unavailable"
+            return "Reset \(index + 1): \(value)"
+        }
+    }
+}
+
+struct ResetExpiryReminder: Sendable {
+    static let threshold: TimeInterval = 72 * 60 * 60
+
+    let availableCount: Int
+    let expiringCredits: [RateLimitResetCredit]
+    let earliestKnownExpiry: Date?
+
+    init?(
+        credits summary: RateLimitResetCredits?,
+        dismissedIDs: Set<String> = [],
+        now: Date = Date()
+    ) {
+        guard let summary, summary.availableCount > 0 else {
+            return nil
+        }
+
+        let detailedCredits = (summary.credits ?? [])
+            .compactMap { credit -> (RateLimitResetCredit, Date)? in
+                guard let expiry = credit.availableCodexExpiry, expiry > now else { return nil }
+                return (credit, expiry)
+            }
+            .reduce(into: [String: (RateLimitResetCredit, Date)]()) { result, entry in
+                guard let id = entry.0.id else { return }
+                result[id] = entry
+            }
+            .values
+            .sorted { $0.1 < $1.1 }
+            .prefix(summary.availableCount)
+
+        let detailed = Array(detailedCredits)
+        availableCount = summary.availableCount
+        let undismissed = detailed.filter { entry in
+            guard let id = entry.0.id else { return false }
+            return !dismissedIDs.contains(id)
+        }
+        earliestKnownExpiry = undismissed.first?.1
+        expiringCredits = undismissed.compactMap { credit, expiry in
+            guard expiry.timeIntervalSince(now) <= Self.threshold,
+                  credit.id != nil else {
+                return nil
+            }
+            return credit
+        }
+    }
+
+    static func remainingTimeText(until expiry: Date, now: Date = Date()) -> String {
+        let hours = max(1, Int(ceil(expiry.timeIntervalSince(now) / 3_600)))
+        if hours >= 24 {
+            let days = Int(ceil(Double(hours) / 24))
+            return days == 1 ? "1 day" : "\(days) days"
+        }
+        return hours == 1 ? "1 hour" : "\(hours) hours"
+    }
+
+    func menuTitle(dateFormatter: DateFormatter, now: Date = Date()) -> String {
+        let count = expiringCredits.count
+        if count == 1, let expiry = expiringCredits.first?.availableCodexExpiry {
+            return "1 reset expires in \(Self.remainingTimeText(until: expiry, now: now))"
+        }
+        if count > 1, let expiry = expiringCredits.first?.availableCodexExpiry {
+            return "\(count) resets expiring · earliest in \(Self.remainingTimeText(until: expiry, now: now))"
+        }
+        if let earliestKnownExpiry {
+            let availableText = availableCount == 1 ? "1 reset available" : "\(availableCount) resets available"
+            return "\(availableText) · earliest expires \(dateFormatter.string(from: earliestKnownExpiry))"
+        }
+        return availableCount == 1 ? "1 reset available" : "\(availableCount) resets available"
+    }
+
+    func nextDisplayTransition(after now: Date) -> Date? {
+        let dates = expiringCredits.compactMap { credit -> Date? in
+            guard let expiry = credit.availableCodexExpiry else { return nil }
+            let remaining = expiry.timeIntervalSince(now)
+            let transition: Date
+            if remaining >= 24 * 60 * 60 {
+                let days = ceil(remaining / (24 * 60 * 60))
+                let nextBoundaryHours = days == 1 ? 23.0 : (days - 1) * 24.0
+                transition = expiry.addingTimeInterval(-nextBoundaryHours * 60 * 60)
+            } else {
+                let hours = ceil(remaining / (60 * 60))
+                transition = expiry.addingTimeInterval(-(hours - 1) * 60 * 60)
+            }
+            return transition > now ? transition : nil
+        }
+        return dates.min()
+    }
+}
+
+struct ResetReminderFreshness {
+    static func maximumAge(refreshInterval: TimeInterval) -> TimeInterval {
+        min(86_400, max(120, refreshInterval * 2))
+    }
+
+    static func canPresent(
+        lastRefreshDate: Date?,
+        hasRefreshError: Bool,
+        isAwaitingFreshRead: Bool,
+        refreshInterval: TimeInterval,
+        now: Date = Date()
+    ) -> Bool {
+        guard let lastRefreshDate, !hasRefreshError, !isAwaitingFreshRead else { return false }
+        let age = now.timeIntervalSince(lastRefreshDate)
+        return age >= 0 && age < maximumAge(refreshInterval: refreshInterval)
+    }
+}
+
+struct ResetExpiryDismissalStore {
+    private struct Entry: Codable, Sendable {
+        let id: String
+        let expiresAt: Date
+    }
+
+    private struct Record: Codable, Sendable {
+        let accountFingerprint: String
+        var entries: [Entry]
+    }
+
+    private static let defaultsKey = "ResetExpiryDismissals.v1"
+    private static let maximumStoredIDs = 128
+    private let defaults: UserDefaults
+
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+    }
+
+    func prepare(accountID: String?, now: Date = Date()) {
+        guard let fingerprint = Self.fingerprint(for: accountID) else { return }
+        var record = readRecord()
+        if record?.accountFingerprint != fingerprint {
+            record = Record(accountFingerprint: fingerprint, entries: [])
+        }
+        guard var record else { return }
+        let pruned = record.entries.filter { $0.expiresAt > now }
+        guard pruned.count != record.entries.count || readRecord()?.accountFingerprint != fingerprint else { return }
+        record.entries = pruned
+        write(record)
+    }
+
+    func dismissedIDs(accountID: String?, now: Date = Date()) -> Set<String> {
+        guard let fingerprint = Self.fingerprint(for: accountID),
+              let record = readRecord(),
+              record.accountFingerprint == fingerprint else {
+            return []
+        }
+        return Set(record.entries.filter { $0.expiresAt > now }.map(\.id))
+    }
+
+    func dismiss(_ credits: [RateLimitResetCredit], accountID: String?, now: Date = Date()) {
+        guard let fingerprint = Self.fingerprint(for: accountID) else { return }
+        let current = readRecord()
+        var record: Record
+        if let current, current.accountFingerprint == fingerprint {
+            record = current
+        } else {
+            record = Record(accountFingerprint: fingerprint, entries: [])
+        }
+        var entries: [String: Entry] = [:]
+        for entry in record.entries where entry.expiresAt > now {
+            entries[entry.id] = entry
+        }
+
+        for credit in credits {
+            guard let id = credit.id, !id.isEmpty,
+                  let expiry = credit.availableCodexExpiry,
+                  expiry > now,
+                  expiry.timeIntervalSince(now) <= ResetExpiryReminder.threshold else { continue }
+            entries[id] = Entry(id: id, expiresAt: expiry)
+        }
+
+        record.entries = Array(entries.values
+            .sorted { $0.expiresAt < $1.expiresAt }
+            .suffix(Self.maximumStoredIDs))
+        write(record)
+    }
+
+    private func readRecord() -> Record? {
+        guard let data = defaults.data(forKey: Self.defaultsKey) else { return nil }
+        return try? JSONDecoder().decode(Record.self, from: data)
+    }
+
+    private func write(_ record: Record) {
+        guard let data = try? JSONEncoder().encode(record) else { return }
+        defaults.set(data, forKey: Self.defaultsKey)
+    }
+
+    static func fingerprint(for accountID: String?) -> String? {
+        guard let accountID, !accountID.isEmpty else { return nil }
+        return SHA256.hash(data: Data(accountID.utf8)).map { String(format: "%02x", $0) }.joined()
+    }
+}
+
+struct PendingResetConsumptionAttempt: Codable, Sendable, Equatable {
+    let accountFingerprint: String?
+    let creditID: String?
+    let idempotencyKey: String
+}
+
+enum ResetConsumptionAttemptStoreError: LocalizedError, Equatable {
+    case accountIdentityUnavailable
+    case unresolvedAttemptForDifferentAccount
+
+    var errorDescription: String? {
+        switch self {
+        case .accountIdentityUnavailable:
+            "Codex did not include an account identifier in the latest usage read, so this reset cannot be safely retried. Refresh usage and try again."
+        case .unresolvedAttemptForDifferentAccount:
+            "A reset attempt from another Codex account is still unresolved. Switch back to that account and retry it before using another reset."
+        }
+    }
+}
+
+@MainActor
+final class ResetConsumptionAttemptStore {
+    private static let defaultsKey = "PendingResetConsumptionAttempt.v1"
+    private let defaults: UserDefaults
+
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+    }
+
+    func begin(creditID: String?, accountID: String?) throws -> PendingResetConsumptionAttempt {
+        guard let accountFingerprint = ResetExpiryDismissalStore.fingerprint(for: accountID) else {
+            throw ResetConsumptionAttemptStoreError.accountIdentityUnavailable
+        }
+        if let data = defaults.data(forKey: Self.defaultsKey),
+           let pending = try? JSONDecoder().decode(PendingResetConsumptionAttempt.self, from: data) {
+            guard pending.accountFingerprint == accountFingerprint else {
+                throw ResetConsumptionAttemptStoreError.unresolvedAttemptForDifferentAccount
+            }
+            return pending
+        }
+
+        let pending = PendingResetConsumptionAttempt(
+            accountFingerprint: accountFingerprint,
+            creditID: creditID,
+            idempotencyKey: UUID().uuidString
+        )
+        if let data = try? JSONEncoder().encode(pending) {
+            defaults.set(data, forKey: Self.defaultsKey)
+        }
+        return pending
+    }
+
+    func hasUnresolvedAttempt(forAccountID accountID: String?) -> Bool {
+        guard let data = defaults.data(forKey: Self.defaultsKey),
+              let pending = try? JSONDecoder().decode(PendingResetConsumptionAttempt.self, from: data) else {
+            return false
+        }
+        guard let accountFingerprint = ResetExpiryDismissalStore.fingerprint(for: accountID) else { return true }
+        return pending.accountFingerprint != accountFingerprint
+    }
+
+    func clear() {
+        defaults.removeObject(forKey: Self.defaultsKey)
+    }
 }
 
 struct RateLimitSnapshot: Decodable, Sendable {
@@ -21,6 +362,8 @@ struct RateLimitWindow: Decodable, Sendable {
 struct UsageSummary: Sendable {
     let limitId: String?
     let planType: String?
+    let accountID: String?
+    let resetCredits: RateLimitResetCredits?
     let fiveHour: UsageWindow
     let weekly: UsageWindow
 
@@ -42,6 +385,8 @@ struct UsageSummary: Sendable {
 
         self.limitId = snapshot.limitId
         self.planType = snapshot.planType
+        self.accountID = response.accountId
+        self.resetCredits = response.rateLimitResetCredits
         self.fiveHour = fiveHour
         self.weekly = weekly
     }
@@ -60,6 +405,97 @@ struct UsageSummary: Sendable {
         let fiveHourReading = fiveHour.isExpired(at: now) ? "unknown (previous window expired)" : "\(fiveHour.remainingPercent)%"
         let weeklyReading = weekly.isExpired(at: now) ? "unknown (previous window expired)" : "\(weekly.remainingPercent)%"
         return "Codex usage\n5-hour remaining: \(fiveHourReading) · resets \(fiveHourReset)\nWeekly remaining: \(weeklyReading) · resets \(weeklyReset)"
+    }
+
+    func hoverTooltip(
+        now: Date = Date(),
+        locale: Locale = .current,
+        timeZone: TimeZone = .current,
+        showingLastKnownReadings: Bool = false
+    ) -> String {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.locale = locale
+        calendar.timeZone = timeZone
+
+        let timeFormatter = DateFormatter()
+        timeFormatter.locale = locale
+        timeFormatter.timeZone = timeZone
+        timeFormatter.dateFormat = "HH:mm"
+
+        let dateFormatter = DateFormatter()
+        dateFormatter.locale = locale
+        dateFormatter.timeZone = timeZone
+        dateFormatter.dateFormat = "MM/dd"
+
+        let fiveHourText = hoverFiveHourResetText(
+            fiveHour.resetsAt,
+            now: now,
+            calendar: calendar,
+            timeFormatter: timeFormatter,
+            dateFormatter: dateFormatter
+        )
+        let weeklyText = hoverWeeklyResetText(weekly.resetsAt, now: now, timeFormatter: timeFormatter, dateFormatter: dateFormatter)
+        var lines = [
+            hoverLine(label: "5h", value: fiveHourText),
+            hoverLine(label: "7-day", value: weeklyText),
+        ]
+        if showingLastKnownReadings {
+            lines.append("Showing last known readings")
+        }
+        return lines.joined(separator: "\n")
+    }
+
+    private func hoverFiveHourResetText(
+        _ resetAt: Date?,
+        now: Date,
+        calendar: Calendar,
+        timeFormatter: DateFormatter,
+        dateFormatter: DateFormatter
+    ) -> String {
+        guard let resetAt else { return "reset time unknown" }
+        guard resetAt > now else { return "expired" }
+
+        let time = timeFormatter.string(from: resetAt)
+        let datePrefix: String
+        if calendar.isDate(resetAt, inSameDayAs: now) {
+            datePrefix = time
+        } else if let tomorrow = calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: now)),
+                  calendar.isDate(resetAt, inSameDayAs: tomorrow) {
+            datePrefix = "Tomorrow \(time)"
+        } else {
+            datePrefix = "\(dateFormatter.string(from: resetAt)) \(time)"
+        }
+        return "\(datePrefix) · \(relativeDuration(until: resetAt, now: now))"
+    }
+
+    private func hoverWeeklyResetText(
+        _ resetAt: Date?,
+        now: Date,
+        timeFormatter: DateFormatter,
+        dateFormatter: DateFormatter
+    ) -> String {
+        guard let resetAt else { return "reset time unknown" }
+        guard resetAt > now else { return "expired" }
+        return "\(dateFormatter.string(from: resetAt)) \(timeFormatter.string(from: resetAt))"
+    }
+
+    private func relativeDuration(until resetAt: Date, now: Date) -> String {
+        let remainingMinutes = max(0, Int(floor((resetAt.timeIntervalSince(now) + 0.001) / 60)))
+        let days = remainingMinutes / (24 * 60)
+        let hours = (remainingMinutes % (24 * 60)) / 60
+        let minutes = remainingMinutes % 60
+
+        if days > 0 {
+            return hours > 0 ? "in \(days)d \(hours)h" : "in \(days)d"
+        }
+        if hours > 0 {
+            return minutes > 0 ? "in \(hours)h \(minutes)m" : "in \(hours)h"
+        }
+        return minutes > 0 ? "in \(minutes)m" : "in <1m"
+    }
+
+    private func hoverLine(label: String, value: String) -> String {
+        "\(label) · \(value)"
     }
 }
 

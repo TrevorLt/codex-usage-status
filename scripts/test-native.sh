@@ -55,6 +55,10 @@ run_harness() {
 printf 'Native test logs: %s\n' "$log_dir"
 
 run_harness 'policy-domain' 'test-policy-domain.sh' '^POLICY DOMAIN PASS([[:space:]]|$)'
+run_harness 'badge-animation' 'test-badge-animation.sh' '^BADGE ANIMATION PASS([:]|[[:space:]]|$)'
+run_harness 'reset-redemption-flow' 'test-reset-redemption-flow.sh' '^RESET REDEMPTION FLOW PASS([:]|[[:space:]]|$)'
+run_harness 'reset-expiry' 'test-reset-expiry.sh' '^RESET EXPIRY PASS([:]|[[:space:]]|$)'
+run_harness 'menu-stability' 'test-menu-stability.sh' '^MENU STABILITY PASS([[:space:]:]|$)'
 run_harness 'path-resolution' 'test-codex-path-resolution.sh' '^PATH RESOLVER PASS$'
 run_harness 'fetcher-lifecycle' 'test-fetcher-lifecycle.sh' '^FETCHER LIFECYCLE PASS$'
 run_harness 'native-faults' 'test-native-faults.sh' '^NATIVE FAULTS PASS([[:space:]]|$)'
@@ -68,4 +72,4 @@ if [[ "$failures" -ne 0 ]]; then
   exit 1
 fi
 
-printf '\nNATIVE TEST SUITE PASS (8 harnesses; logs: %s)\n' "$log_dir"
+printf '\nNATIVE TEST SUITE PASS (12 harnesses; logs: %s)\n' "$log_dir"

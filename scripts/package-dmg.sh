@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DIST_DIR="$ROOT_DIR/dist"
 APP_DIR="$DIST_DIR/Codex Usage Status.app"
-VERSION="${VERSION:-0.1.3}"
+VERSION="${VERSION:-0.1.4}"
 BUILD_ARCH="${BUILD_ARCH:-$(uname -m)}"
 DMG_NAME="CodexUsageStatus-${VERSION}-macos-${BUILD_ARCH}.dmg"
 DMG_PATH="$DIST_DIR/$DMG_NAME"

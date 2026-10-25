@@ -4,7 +4,7 @@ Codex Usage Status is intentionally narrow: it shows local Codex usage status in
 
 ## What the app reads
 
-The app reads only the structured usage response returned by the local Codex app-server method:
+The app reads the structured usage response returned by the local Codex app-server method:
 
 ```json
 {"method":"account/rateLimits/read","id":2}
@@ -12,13 +12,15 @@ The app reads only the structured usage response returned by the local Codex app
 
 Codex itself owns authentication. This companion app receives the usage percentages and reset times that Codex returns through that local interface.
 
+If you choose **Use reset** and confirm, the app also sends `account/rateLimitResetCredit/consume` through the local app-server. It uses the earliest known available credit when the response includes its ID; otherwise Codex selects an available credit. A pending idempotency key, selected opaque credit ID, and one-way account fingerprint can be stored locally until the app confirms the result. The fingerprint keeps an uncertain retry scoped to the same account and does not contain the raw account identifier.
+
 ## What the app does not read
 
 - It does not read `~/.codex/auth.json`.
 - It does not read browser cookies, browser storage, sessions, OAuth credentials, refresh tokens, API keys, or account passwords.
 - It does not scrape Codex UI pages, browser pages, screenshots, or OCR output.
 - It does not modify the official Codex app bundle.
-- It does not bypass, increase, reset, purchase, or route around usage limits.
+- It does not bypass, increase, or purchase usage limits. It never consumes an earned reset automatically.
 
 ## What leaves your Mac
 
