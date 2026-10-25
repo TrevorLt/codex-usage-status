@@ -18,7 +18,7 @@ The 5-hour and 7-day readings animate smoothly when refreshed. A confirmed reset
 |:---:|:---:|
 | ![Double Ring badge showing its reset recovery animation](docs/assets/badge-reset-double-ring.gif) | ![Large Readout badge showing its reset recovery animation](docs/assets/badge-reset-large-readout.gif) |
 
-These GIFs use synthetic local readings rendered by the app's AppKit badge renderer; they do not access an account or use a reset. Regenerate them with `npm run export:readme-media`.
+Reset animations loop continuously with a 1.5-second pause between cycles.
 
 An amber dot marks an earned reset that expires within 72 hours. It stays on the badge as a quiet reminder; the menu offers a direct path to use the earliest known-expiring reset.
 
