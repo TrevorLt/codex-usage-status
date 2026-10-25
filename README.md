@@ -16,7 +16,7 @@ The 5-hour and 7-day readings animate smoothly when refreshed. A confirmed reset
 
 | **Double Ring reset animation** | **Large Readout reset animation** |
 |:---:|:---:|
-| ![Double Ring badge showing its reset recovery animation](docs/assets/badge-reset-double-ring.gif) | ![Large Readout badge showing its reset recovery animation](docs/assets/badge-reset-large-readout.gif) |
+| <img src="docs/assets/badge-reset-double-ring.gif" width="300" alt="Double Ring badge reset recovery animation"> | <img src="docs/assets/badge-reset-large-readout.gif" width="300" alt="Large Readout badge reset recovery animation"> |
 
 Reset animations loop continuously with a 1.5-second pause between cycles.
 
