@@ -6,9 +6,11 @@ import UniformTypeIdentifiers
 @MainActor
 @main
 private enum ExportReadmeBadgeMedia {
-    private static let canvasSize = NSSize(width: 430, height: 144)
-    private static let pixelScale = 3
+    private static let canvasSize = NSSize(width: 300, height: 100)
+    private static let menuBarSampleSize = NSSize(width: 213, height: 67)
+    private static let pixelScale = 1
     private static let framesPerSecond = 24.0
+    private static let repeatPause = 1.5
 
     static func main() throws {
         guard CommandLine.arguments.count == 2 else {
@@ -21,6 +23,7 @@ private enum ExportReadmeBadgeMedia {
 
         let now = Date()
         let usage = try makeUsage(fiveHour: 100, weekly: 100, now: now)
+        try writeMenuBarSamples(usage: makeUsage(fiveHour: 53, weekly: 93, now: now), now: now, to: outputDirectory)
         let transition = UsageBadgeTransition(
             fromFiveHour: 14,
             fromWeekly: 18,
@@ -31,16 +34,66 @@ private enum ExportReadmeBadgeMedia {
         )
 
         for style in BadgeStyle.allCases {
-            let frames = try resetFrames(style: style, usage: usage, transition: transition, now: now)
+            var frames = try resetFrames(style: style, usage: usage, transition: transition, now: now)
+            if let finalFrame = frames.last {
+                frames.append(GIFFrame(
+                    image: finalFrame.image,
+                    delay: max(0.1, repeatPause - finalFrame.delay)
+                ))
+            }
             let filename = style == .doubleRing ? "double-ring" : "large-readout"
             let destination = outputDirectory.appendingPathComponent("badge-reset-\(filename).gif")
-            try writeGIF(frames, to: destination, delay: 1 / framesPerSecond)
+            try writeGIF(frames, to: destination)
             print("Wrote \(destination.path)")
         }
 
         let reminderURL = outputDirectory.appendingPathComponent("reset-expiry-reminder.png")
         try writeReminderImage(usage: makeUsage(fiveHour: 62, weekly: 81, now: now), now: now, to: reminderURL)
         print("Wrote \(reminderURL.path)")
+    }
+
+    private static func writeMenuBarSamples(usage: UsageSummary, now: Date, to directory: URL) throws {
+        let appearance = NSAppearance(named: .aqua) ?? NSAppearance.currentDrawing()
+        for style in BadgeStyle.allCases {
+            let bitmap = try makeBitmap(size: menuBarSampleSize)
+            NSGraphicsContext.saveGraphicsState()
+            defer { NSGraphicsContext.restoreGraphicsState() }
+            guard let context = NSGraphicsContext(bitmapImageRep: bitmap) else {
+                throw ExportError.bitmapContextUnavailable
+            }
+            NSGraphicsContext.current = context
+            context.imageInterpolation = .high
+            context.shouldAntialias = true
+
+            appearance.performAsCurrentDrawingAppearance {
+                let bounds = NSRect(origin: .zero, size: menuBarSampleSize)
+                NSGradient(colors: [
+                    NSColor(calibratedRed: 1, green: 0.89, blue: 0.29, alpha: 1),
+                    NSColor(calibratedRed: 1, green: 0.82, blue: 0.22, alpha: 1),
+                ])?.draw(in: bounds, angle: 270)
+
+                let rendering = UsageBadgeRenderer.rendering(
+                    for: usage,
+                    style: style,
+                    appearance: appearance,
+                    now: now
+                )
+                rendering.image.draw(
+                    in: NSRect(x: 21, y: 9.5, width: 172, height: 48),
+                    from: .zero,
+                    operation: .sourceOver,
+                    fraction: 1
+                )
+            }
+
+            guard let data = bitmap.representation(using: .png, properties: [:]) else {
+                throw ExportError.pngEncodingFailed
+            }
+            let filename = style == .doubleRing ? "double-ring" : "large-readout"
+            let destination = directory.appendingPathComponent("menu-bar-badge-\(filename).png")
+            try data.write(to: destination, options: .atomic)
+            print("Wrote \(destination.path)")
+        }
     }
 
     private static func makeUsage(fiveHour: Int, weekly: Int, now: Date) throws -> UsageSummary {
@@ -69,41 +122,26 @@ private enum ExportReadmeBadgeMedia {
         usage: UsageSummary,
         transition: UsageBadgeTransition,
         now: Date
-    ) throws -> [CGImage] {
+    ) throws -> [GIFFrame] {
         let appearance = NSAppearance(named: .aqua) ?? NSAppearance.currentDrawing()
         let transitionFrameCount = max(1, Int((transition.duration * framesPerSecond).rounded()))
-        var frames: [CGImage] = []
+        var frames: [GIFFrame] = []
 
         for _ in 0..<6 {
-            frames.append(try badgeFrame(
-                style: style,
-                usage: usage,
-                appearance: appearance,
-                now: now,
-                animationFrame: transition.frame(at: 0)
+            frames.append(GIFFrame(
+                image: try badgeFrame(style: style, usage: usage, appearance: appearance, now: now, animationFrame: transition.frame(at: 0)),
+                delay: 1 / framesPerSecond
             ))
         }
 
         for frameIndex in 1...transitionFrameCount {
             let elapsed = transition.duration * Double(frameIndex) / Double(transitionFrameCount)
-            frames.append(try badgeFrame(
-                style: style,
-                usage: usage,
-                appearance: appearance,
-                now: now,
-                animationFrame: transition.frame(at: elapsed)
+            frames.append(GIFFrame(
+                image: try badgeFrame(style: style, usage: usage, appearance: appearance, now: now, animationFrame: transition.frame(at: elapsed)),
+                delay: 1 / framesPerSecond
             ))
         }
 
-        for _ in 0..<12 {
-            frames.append(try badgeFrame(
-                style: style,
-                usage: usage,
-                appearance: appearance,
-                now: now,
-                animationFrame: transition.frame(at: transition.duration)
-            ))
-        }
         return frames
     }
 
@@ -225,7 +263,7 @@ private enum ExportReadmeBadgeMedia {
     }
 
     private static var enlargedBadgeRect: NSRect {
-        NSRect(x: 86, y: 40, width: 258, height: 72)
+        NSRect(x: 64, y: 18, width: 172, height: 48)
     }
 
     private static func drawCardBackground() {
@@ -242,10 +280,10 @@ private enum ExportReadmeBadgeMedia {
         NSAttributedString(
             string: text,
             attributes: [
-                .font: NSFont.systemFont(ofSize: 14, weight: .semibold),
+                .font: NSFont.systemFont(ofSize: 12, weight: .semibold),
                 .foregroundColor: NSColor.labelColor,
             ]
-        ).draw(at: NSPoint(x: 24, y: 116))
+        ).draw(at: NSPoint(x: 18, y: 78))
     }
 
     private static func drawExpiryDot(in badgeRect: NSRect) {
@@ -261,7 +299,7 @@ private enum ExportReadmeBadgeMedia {
         NSBezierPath(ovalIn: dotRect).fill()
     }
 
-    private static func writeGIF(_ frames: [CGImage], to url: URL, delay: Double) throws {
+    private static func writeGIF(_ frames: [GIFFrame], to url: URL) throws {
         guard let destination = CGImageDestinationCreateWithURL(
             url as CFURL,
             UTType.gif.identifier as CFString,
@@ -272,20 +310,51 @@ private enum ExportReadmeBadgeMedia {
         }
 
         CGImageDestinationSetProperties(destination, [
-            kCGImagePropertyGIFLoopCount as String: 0,
+            kCGImagePropertyGIFDictionary as String: [
+                kCGImagePropertyGIFLoopCount as String: 0,
+            ],
         ] as CFDictionary)
 
-        let frameProperties: CFDictionary = [
-            kCGImagePropertyGIFDictionary as String: [
-                kCGImagePropertyGIFDelayTime as String: delay,
-                kCGImagePropertyGIFUnclampedDelayTime as String: delay,
-            ],
-        ] as CFDictionary
-
         for frame in frames {
-            CGImageDestinationAddImage(destination, frame, frameProperties)
+            let frameProperties: CFDictionary = [
+                kCGImagePropertyGIFDictionary as String: [
+                    kCGImagePropertyGIFDelayTime as String: frame.delay,
+                    kCGImagePropertyGIFUnclampedDelayTime as String: frame.delay,
+                ],
+            ] as CFDictionary
+            CGImageDestinationAddImage(destination, frame.image, frameProperties)
         }
         guard CGImageDestinationFinalize(destination) else { throw ExportError.gifEncodingFailed }
+        try verifyGIF(at: url)
+    }
+
+    private static func verifyGIF(at url: URL) throws {
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
+              let properties = CGImageSourceCopyProperties(source, nil) as? [CFString: Any],
+              let gifProperties = properties[kCGImagePropertyGIFDictionary] as? [CFString: Any],
+              (gifProperties[kCGImagePropertyGIFLoopCount] as? NSNumber)?.intValue == 0 else {
+            throw ExportError.gifLoopVerificationFailed
+        }
+
+        var delays: [Double] = []
+        for index in 0..<CGImageSourceGetCount(source) {
+            let frameProperties = CGImageSourceCopyPropertiesAtIndex(source, index, nil) as? [CFString: Any]
+            let frameGIFProperties = frameProperties?[kCGImagePropertyGIFDictionary] as? [CFString: Any]
+            let delay = (frameGIFProperties?[kCGImagePropertyGIFUnclampedDelayTime] as? NSNumber)?.doubleValue
+                ?? (frameGIFProperties?[kCGImagePropertyGIFDelayTime] as? NSNumber)?.doubleValue
+                ?? 0
+            delays.append(delay)
+        }
+        guard delays.count >= 2,
+              delays.filter({ $0 > 1 }).count == 1,
+              abs(delays[delays.count - 2] + delays[delays.count - 1] - repeatPause) < 0.01 else {
+            throw ExportError.gifPauseVerificationFailed
+        }
+    }
+
+    private struct GIFFrame {
+        let image: CGImage
+        let delay: Double
     }
 
     private enum ExportError: Error {
@@ -294,5 +363,7 @@ private enum ExportReadmeBadgeMedia {
         case pngEncodingFailed
         case gifDestinationUnavailable
         case gifEncodingFailed
+        case gifLoopVerificationFailed
+        case gifPauseVerificationFailed
     }
 }
