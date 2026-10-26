@@ -43,7 +43,13 @@ struct LoginItemAudit {
         check(profile["Label"] as? String == LoginItemController.label, "profile label")
         check((profile["ProgramArguments"] as? [String])?.first == executable, "profile executable")
         check(profile["RunAtLoad"] as? Bool == true, "profile RunAtLoad")
-        check(profile["KeepAlive"] as? Bool == true, "profile KeepAlive")
+        check((profile["KeepAlive"] as? [String: Bool]) == ["SuccessfulExit": false], "clean exit must not restart the app")
+
+        try controller.stopForCurrentSession()
+        check(!fileManager.fileExists(atPath: state.path), "Quit unloads the current job")
+        check(controller.isEnabled && fileManager.fileExists(atPath: plistURL.path), "Quit preserves next-login startup")
+        try controller.stopForCurrentSession()
+        try controller.setEnabled(true)
 
         try controller.setEnabled(false)
         check(!controller.isEnabled, "disable clears the checked login profile")
@@ -54,7 +60,7 @@ struct LoginItemAudit {
             "Label": LoginItemController.label,
             "ProgramArguments": ["/old/CodexUsageStatus", "preserve-this-argument"],
             "RunAtLoad": false,
-            "KeepAlive": false,
+            "KeepAlive": true,
             "EnvironmentVariables": ["CODEX_BIN": "/custom/codex/bin"],
         ]
         try writeProfile(profile, to: plistURL)
@@ -66,8 +72,11 @@ struct LoginItemAudit {
               "enable updates only the executable argument")
         check((preservedProfile["EnvironmentVariables"] as? [String: String])?["CODEX_BIN"] == "/custom/codex/bin",
               "enable preserves custom Codex executable configuration")
-        check(preservedProfile["RunAtLoad"] as? Bool == true && preservedProfile["KeepAlive"] as? Bool == true,
-              "enable repairs disabled launch flags")
+        check(preservedProfile["RunAtLoad"] as? Bool == true
+              && (preservedProfile["KeepAlive"] as? [String: Bool]) == ["SuccessfulExit": false],
+              "enable migrates legacy unconditional restart flags")
+        try controller.stopForCurrentSession()
+        check(controller.isEnabled && !fileManager.fileExists(atPath: state.path), "Quit also unloads legacy loaded profiles")
 
         print("LOGIN ITEM PASS: \(assertions) assertions")
     }

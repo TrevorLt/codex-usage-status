@@ -3,12 +3,12 @@ import Foundation
 /// The two service operations needed by a user-confirmed reset redemption.
 /// Tests and previews inject a local fake; the app uses the Codex app-server adapter.
 protocol ResetRedemptionClient: Sendable {
-    func consumeReset(creditID: String?, idempotencyKey: String) async throws -> String
+    func consumeReset(creditID: String, idempotencyKey: String) async throws -> String
     func fetchUsage() async throws -> UsageSummary
 }
 
 struct CodexResetRedemptionClient: ResetRedemptionClient {
-    func consumeReset(creditID: String?, idempotencyKey: String) async throws -> String {
+    func consumeReset(creditID: String, idempotencyKey: String) async throws -> String {
         try await CodexUsageFetcher.consumeReset(creditID: creditID, idempotencyKey: idempotencyKey)
     }
 
@@ -21,11 +21,9 @@ enum ResetRedemptionResult: Sendable {
     case confirmed(usage: UsageSummary, changedWindows: Set<UsageWindowKind>)
     case nothingToReset
     case noCredit
-    case preflightFailed(message: String)
-    case accountChanged
-    case accountIdentityUnavailable
     case refreshPending(message: String)
     case statusUnclear(message: String)
+    case accountNotVerified(message: String)
 }
 
 struct ResetRedemptionFlowError: LocalizedError {
@@ -43,18 +41,20 @@ struct ResetRedemptionFlow: Sendable {
     func redeem(
         creditID: String?,
         idempotencyKey: String,
+        accountID: String,
         previousUsage: UsageSummary?,
         now: Date = Date()
     ) async -> ResetRedemptionResult {
-        guard let expectedAccountID = previousUsage?.accountID, !expectedAccountID.isEmpty else {
-            return .accountIdentityUnavailable
+        guard let creditID, !creditID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return .accountNotVerified(message: "Codex did not provide a reset credit ID. Use the reset in Codex instead.")
         }
-
         do {
-            let currentUsage = try await client.fetchUsage()
-            guard currentUsage.accountID == expectedAccountID else { return .accountChanged }
+            let current = try await client.fetchUsage()
+            guard !accountID.isEmpty, current.accountID == accountID else {
+                return .accountNotVerified(message: "The Codex account changed. Return to the account that started this reset before retrying.")
+            }
         } catch {
-            return .preflightFailed(message: error.localizedDescription)
+            return .accountNotVerified(message: error.localizedDescription)
         }
 
         let outcome: String
@@ -68,8 +68,8 @@ struct ResetRedemptionFlow: Sendable {
         case "reset", "alreadyRedeemed":
             do {
                 let currentUsage = try await client.fetchUsage()
-                guard currentUsage.accountID == expectedAccountID else {
-                    return .refreshPending(message: "Codex switched accounts after the reset request was sent. Switch back to the account that confirmed the reset and retry to check the same request safely.")
+                guard currentUsage.accountID == accountID else {
+                    return .refreshPending(message: "Codex confirmed the reset, but the account changed before usage could be verified.")
                 }
                 return .confirmed(
                     usage: currentUsage,
@@ -88,7 +88,7 @@ struct ResetRedemptionFlow: Sendable {
     }
 
     private static func changedWindows(from previous: UsageSummary?, to current: UsageSummary, now: Date) -> Set<UsageWindowKind> {
-        guard let previous else { return [] }
+        guard let previous, previous.accountID == current.accountID else { return [] }
         var changed = Set<UsageWindowKind>()
         if indicatesReset(from: previous.fiveHour, to: current.fiveHour, now: now) {
             changed.insert(.fiveHour)

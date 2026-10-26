@@ -281,23 +281,16 @@ struct ResetExpiryDismissalStore {
 }
 
 struct PendingResetConsumptionAttempt: Codable, Sendable, Equatable {
-    let accountFingerprint: String?
     let creditID: String?
     let idempotencyKey: String
-}
+    let accountFingerprint: String?
 
-enum ResetConsumptionAttemptStoreError: LocalizedError, Equatable {
-    case accountIdentityUnavailable
-    case unresolvedAttemptForDifferentAccount
-
-    var errorDescription: String? {
-        switch self {
-        case .accountIdentityUnavailable:
-            "Codex did not include an account identifier in the latest usage read, so this reset cannot be safely retried. Refresh usage and try again."
-        case .unresolvedAttemptForDifferentAccount:
-            "A reset attempt from another Codex account is still unresolved. Switch back to that account and retry it before using another reset."
-        }
+    func belongs(to accountID: String) -> Bool {
+        guard let fingerprint = ResetExpiryDismissalStore.fingerprint(for: accountID) else { return false }
+        return accountFingerprint == fingerprint
     }
+
+
 }
 
 @MainActor
@@ -309,36 +302,26 @@ final class ResetConsumptionAttemptStore {
         self.defaults = defaults
     }
 
-    func begin(creditID: String?, accountID: String?) throws -> PendingResetConsumptionAttempt {
-        guard let accountFingerprint = ResetExpiryDismissalStore.fingerprint(for: accountID) else {
-            throw ResetConsumptionAttemptStoreError.accountIdentityUnavailable
-        }
-        if let data = defaults.data(forKey: Self.defaultsKey),
-           let pending = try? JSONDecoder().decode(PendingResetConsumptionAttempt.self, from: data) {
-            guard pending.accountFingerprint == accountFingerprint else {
-                throw ResetConsumptionAttemptStoreError.unresolvedAttemptForDifferentAccount
-            }
-            return pending
+    var pending: PendingResetConsumptionAttempt? {
+        guard let data = defaults.data(forKey: Self.defaultsKey) else { return nil }
+        return try? JSONDecoder().decode(PendingResetConsumptionAttempt.self, from: data)
+    }
+
+    func begin(creditID: String?, accountID: String) -> PendingResetConsumptionAttempt? {
+        guard !accountID.isEmpty else { return nil }
+        if let pending {
+            return pending.belongs(to: accountID) ? pending : nil
         }
 
         let pending = PendingResetConsumptionAttempt(
-            accountFingerprint: accountFingerprint,
             creditID: creditID,
-            idempotencyKey: UUID().uuidString
+            idempotencyKey: UUID().uuidString,
+            accountFingerprint: ResetExpiryDismissalStore.fingerprint(for: accountID)
         )
         if let data = try? JSONEncoder().encode(pending) {
             defaults.set(data, forKey: Self.defaultsKey)
         }
         return pending
-    }
-
-    func hasUnresolvedAttempt(forAccountID accountID: String?) -> Bool {
-        guard let data = defaults.data(forKey: Self.defaultsKey),
-              let pending = try? JSONDecoder().decode(PendingResetConsumptionAttempt.self, from: data) else {
-            return false
-        }
-        guard let accountFingerprint = ResetExpiryDismissalStore.fingerprint(for: accountID) else { return true }
-        return pending.accountFingerprint != accountFingerprint
     }
 
     func clear() {

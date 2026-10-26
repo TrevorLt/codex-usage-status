@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { createInterface } from 'node:readline';
 import { spawn } from 'node:child_process';
-import { appendFileSync } from 'node:fs';
+import { appendFileSync, existsSync } from 'node:fs';
 
 const mode = process.env.NATIVE_FAULT_MODE || 'success';
 const pidFile = process.env.NATIVE_FAULT_PID_FILE;
@@ -82,7 +82,18 @@ input.on('line', line => {
   } catch {
     return;
   }
-  if (request.method !== 'account/rateLimits/read') return;
+  if (request.method === 'account/rateLimitResetCredit/consume') {
+    const requestFile = process.env.NATIVE_RESET_REQUEST_FILE;
+    const isRetry = existsSync(requestFile);
+    appendFileSync(requestFile, `${JSON.stringify(request)}\n`);
+    if (mode === 'reset-lost-response' && !isRetry) process.exit(7);
+    process.stdout.write(`${JSON.stringify({ id: request.id, result: { outcome: isRetry ? 'alreadyRedeemed' : 'reset' } })}\n`);
+    return;
+  }
+  if (request.method !== 'account/rateLimits/read') {
+    if (request.id === 2) process.stdout.write(`${JSON.stringify({ id: request.id, error: { message: 'Unexpected method' } })}\n`);
+    return;
+  }
 
   void (async () => {
     if (mode === 'hang') return;

@@ -19,7 +19,9 @@ Usage is read through the official local Codex app-server method:
 {"method":"account/rateLimits/read","id":2}
 ```
 
-After explicit confirmation, the app can also send `account/rateLimitResetCredit/consume`. It uses the server-provided opaque credit ID when available and a persisted idempotency key for safe retries. The pending attempt stores a one-way account fingerprint so it cannot be retried against a different account. The app reads usage again after a confirmed redemption.
+After explicit confirmation, the app can also send `account/rateLimitResetCredit/consume`. Every consume request requires a specific credit ID observed on the verified account and a persisted idempotency key for safe retries. The app never asks the server to pick a credit, including after an account switch. A follow-up read from a different account is not displayed as a confirmed reset.
+
+Pending requests are bound to a hashed account identifier. Unbound legacy requests and requests belonging to a different account cannot be sent; clearing one requires a separate explicit choice. Polling is suspended during redemption so older reads cannot replace its result.
 
 Codex itself owns authentication and calls its own backend. This project receives only the structured rate-limit response returned by app-server.
 

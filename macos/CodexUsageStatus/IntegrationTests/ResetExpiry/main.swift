@@ -232,30 +232,23 @@ struct ResetExpiryAudit {
         defer { attemptDefaults.removePersistentDomain(forName: attemptSuite) }
         let attemptRetryIsSafe = MainActor.assumeIsolated { () -> Bool in
             let attemptStore = ResetConsumptionAttemptStore(defaults: attemptDefaults)
-            guard (try? attemptStore.begin(creditID: "unknown-account-credit", accountID: nil)) == nil,
-                  !attemptStore.hasUnresolvedAttempt(forAccountID: nil) else {
-                return false
-            }
-            guard let first = try? attemptStore.begin(creditID: "earliest-credit", accountID: "account-a"),
-                  let retry = try? attemptStore.begin(creditID: "different-credit", accountID: "account-a") else {
-                return false
-            }
-            guard let attemptData = attemptDefaults.data(forKey: "PendingResetConsumptionAttempt.v1"),
-                  !String(decoding: attemptData, as: UTF8.self).contains("account-a") else {
-                return false
-            }
+            let first = attemptStore.begin(creditID: "earliest-credit", accountID: "account-a")!
+            let retry = attemptStore.begin(creditID: "different-credit", accountID: "account-a")!
             guard first == retry, retry.creditID == "earliest-credit" else { return false }
-            guard attemptStore.hasUnresolvedAttempt(forAccountID: "account-b"),
-                  (try? attemptStore.begin(creditID: "other-account-credit", accountID: "account-b")) == nil else {
-                return false
-            }
+            guard attemptStore.begin(creditID: "other-account-credit", accountID: "account-b") == nil,
+                  attemptStore.pending == first else { return false }
+            guard attemptStore.begin(creditID: nil, accountID: "") == nil else { return false }
+            guard let stored = attemptDefaults.data(forKey: "PendingResetConsumptionAttempt.v1"),
+                  !String(decoding: stored, as: UTF8.self).contains("account-a") else { return false }
             attemptStore.clear()
-            guard let next = try? attemptStore.begin(creditID: "different-credit", accountID: "account-b") else {
-                return false
-            }
-            return next.idempotencyKey != first.idempotencyKey && next.creditID == "different-credit"
+            let next = attemptStore.begin(creditID: "different-credit", accountID: "account-a")!
+            guard next.idempotencyKey != first.idempotencyKey && next.creditID == "different-credit" else { return false }
+            attemptDefaults.set(Data(#"{"creditID":"legacy-credit","idempotencyKey":"legacy-key"}"#.utf8),
+                                forKey: "PendingResetConsumptionAttempt.v1")
+            return attemptStore.pending?.idempotencyKey == "legacy-key"
+                && attemptStore.begin(creditID: "new-credit", accountID: "account-a") == nil
         }
-        check(attemptRetryIsSafe, "retries reuse the same account's request and block cross-account replay")
+        check(attemptRetryIsSafe, "retries preserve their key and credit, reject other accounts, and retain unbound legacy requests")
 
         print("RESET EXPIRY PASS: \(assertions) assertions; boundaries, unknown details, account scope, freshness and dismissal")
     }

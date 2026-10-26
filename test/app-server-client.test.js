@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { PassThrough, Writable } from "node:stream";
 import test from "node:test";
 import { performance } from "node:perf_hooks";
-import { pathToFileURL, fileURLToPath } from "node:url";
+import { fileURLToPath } from "node:url";
 
 import {
   AppServerClient,
@@ -284,31 +284,4 @@ test("escalates bounded child shutdown from TERM to KILL", async () => {
 
   assert.equal(child.signalCode, "SIGKILL");
   assert.ok(performance.now() - startedAt < 1500);
-});
-
-test("redacts long non-token text without quadratic regex backtracking", async () => {
-  const moduleUrl = pathToFileURL(fileURLToPath(new URL("../src/app-server-client.js", import.meta.url))).href;
-  const script = `import { redactSensitive } from ${JSON.stringify(moduleUrl)};\nconst input = "a".repeat(131072);\nif (redactSensitive(input) !== input) process.exitCode = 2;`;
-  const child = spawn(process.execPath, ["--input-type=module", "--eval", script], {
-    stdio: ["ignore", "ignore", "ignore"],
-  });
-
-  const result = await new Promise((resolve, reject) => {
-    let timedOut = false;
-    const watchdog = setTimeout(() => {
-      timedOut = true;
-      child.kill("SIGKILL");
-    }, 2500);
-    child.once("error", () => {
-      clearTimeout(watchdog);
-      reject(new Error("Could not start the redaction performance probe."));
-    });
-    child.once("close", (code, signal) => {
-      clearTimeout(watchdog);
-      resolve({ code, signal, timedOut });
-    });
-  });
-
-  assert.equal(result.timedOut, false);
-  assert.equal(result.code, 0);
 });

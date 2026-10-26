@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process';
-import { readFileSync, rmSync } from 'node:fs';
+import assert from 'node:assert/strict';
+import { existsSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 
@@ -163,5 +164,40 @@ if (failed) {
   console.error(`NATIVE FAULTS FAIL (${cases.length} process scenarios)`);
   process.exitCode = 1;
 } else {
+  const requestFile = join(scratchDirectory, 'reset-requests.jsonl');
+  async function consume(key, creditID, mode) {
+    const args = ['consume', key];
+    if (creditID !== undefined) args.push(creditID);
+    const child = spawn(executable, args, {
+      env: { ...process.env, CODEX_BIN: fixture, NATIVE_FAULT_MODE: mode, NATIVE_RESET_REQUEST_FILE: requestFile },
+      stdio: ['ignore', 'pipe', 'pipe']
+    });
+    let output = '';
+    child.stdout.on('data', chunk => { output += chunk.toString(); });
+    child.stderr.resume();
+    const code = await new Promise((resolve, reject) => {
+      const timer = setTimeout(() => { child.kill('SIGKILL'); reject(new Error('consume fixture timed out')); }, 5_000);
+      child.once('error', error => { clearTimeout(timer); reject(error); });
+      child.once('close', code => { clearTimeout(timer); resolve(code); });
+    });
+    return { code, output };
+  }
+  rmSync(requestFile, { force: true });
+  const creditID = 'credit-"\\\n模型';
+  const key = 'same-reset-request';
+  assert.equal((await consume(key, creditID, 'reset-lost-response')).code, 1);
+  const retry = await consume(key, creditID, 'reset-lost-response');
+  assert.equal(retry.code, 0);
+  assert.match(retry.output, /CONSUME SUCCESS: alreadyRedeemed/);
+  const requests = readFileSync(requestFile, 'utf8').trim().split('\n').map(JSON.parse);
+  assert.equal(requests.length, 2);
+  assert.deepEqual(requests[0], { method: 'account/rateLimitResetCredit/consume', id: 2, params: { creditId: creditID, idempotencyKey: key } });
+  assert.deepEqual(requests[1], requests[0]);
+  rmSync(requestFile);
+  for (const credit of [undefined, '', '   ']) {
+    assert.equal((await consume('missing-credit', credit, 'success')).code, 1);
+    assert.equal(existsSync(requestFile), false, 'missing credit IDs must never reach the server');
+  }
+  console.log('RESET WIRE PASS: exact method/params, escaped credit ID, lost-response retry, and local rejection of missing credit IDs');
   console.log(`NATIVE FAULTS PASS (${cases.length} process scenarios)`);
 }

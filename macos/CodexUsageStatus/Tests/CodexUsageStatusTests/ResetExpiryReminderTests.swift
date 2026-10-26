@@ -10,25 +10,17 @@ final class ResetExpiryReminderTests: XCTestCase {
         defer { defaults.removePersistentDomain(forName: suiteName) }
         let store = ResetConsumptionAttemptStore(defaults: defaults)
 
-        XCTAssertThrowsError(try store.begin(creditID: "unknown-account-credit", accountID: nil)) { error in
-            XCTAssertEqual(error as? ResetConsumptionAttemptStoreError, .accountIdentityUnavailable)
-        }
-        XCTAssertFalse(store.hasUnresolvedAttempt(forAccountID: nil))
-
-        let first = try store.begin(creditID: "earliest-credit", accountID: "account-a")
-        let retry = try store.begin(creditID: "different-credit", accountID: "account-a")
-        let attemptData = try XCTUnwrap(defaults.data(forKey: "PendingResetConsumptionAttempt.v1"))
-        XCTAssertFalse(String(decoding: attemptData, as: UTF8.self).contains("account-a"))
+        let first = store.begin(creditID: "earliest-credit", accountID: "account-a")!
+        let retry = store.begin(creditID: "different-credit", accountID: "account-a")!
         XCTAssertEqual(first, retry)
         XCTAssertEqual(retry.creditID, "earliest-credit")
-        XCTAssertTrue(store.hasUnresolvedAttempt(forAccountID: "account-b"))
-        XCTAssertThrowsError(try store.begin(creditID: "account-b-credit", accountID: "account-b"))
+        XCTAssertNil(store.begin(creditID: "other-credit", accountID: "account-b"))
+        XCTAssertEqual(store.pending, first)
 
         store.clear()
-        let next = try store.begin(creditID: "different-credit", accountID: "account-b")
+        let next = store.begin(creditID: "different-credit", accountID: "account-a")!
         XCTAssertNotEqual(next.idempotencyKey, first.idempotencyKey)
         XCTAssertEqual(next.creditID, "different-credit")
-        XCTAssertFalse(store.hasUnresolvedAttempt(forAccountID: "account-b"))
     }
 
     func testUnknownResetFieldAndNullDetailsDoNotBecomeZeroOrAnExpiryAlert() throws {

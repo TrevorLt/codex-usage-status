@@ -59,6 +59,12 @@ struct LoginItemController {
         }
     }
 
+    func stopForCurrentSession() throws {
+        if isLoaded, runLaunchctl(["bootout", "\(domain)/\(Self.label)"]) != 0 {
+            throw LoginItemControllerError.launchctlFailed
+        }
+    }
+
     private func enable() throws {
         guard !executablePath.isEmpty else { throw LoginItemControllerError.invalidExistingProfile }
 
@@ -75,7 +81,7 @@ struct LoginItemController {
         }
         profile["ProgramArguments"] = arguments
         profile["RunAtLoad"] = true
-        profile["KeepAlive"] = true
+        profile["KeepAlive"] = ["SuccessfulExit": false]
 
         do {
             try writeProfile(profile)
@@ -114,7 +120,7 @@ struct LoginItemController {
                 "Label": Self.label,
                 "ProgramArguments": [executablePath],
                 "RunAtLoad": true,
-                "KeepAlive": true,
+                "KeepAlive": ["SuccessfulExit": false],
             ]
         }
         return try readProfile()

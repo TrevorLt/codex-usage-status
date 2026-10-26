@@ -21,6 +21,6 @@ done
   openssl dgst -sha256 -r CodexUsageStatus-"$VERSION"-macos-*.zip CodexUsageStatus-"$VERSION"-macos-*.dmg > SHA256SUMS.txt
 )
 
-VERSION="$VERSION" "$ROOT_DIR/scripts/build-macos-app.sh" >/dev/null
+env -u BUILD_ARCH VERSION="$VERSION" "$ROOT_DIR/scripts/build-macos-app.sh" >/dev/null
 
 echo "$DIST_DIR"

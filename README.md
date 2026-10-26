@@ -83,11 +83,12 @@ The app is menu-bar-only and does not appear in the Dock. The DMG uses the proje
 Click the badge to access:
 
 - `Refresh` — request an immediate update, subject to the safety floor.
-- `Use one reset…` — when a reset is available, choose **Use reset** in the confirmation dialog to consume it through Codex. The app selects the earliest known expiry when reset details are available; otherwise Codex chooses an available reset.
+- `Use one reset…` — choose **Use reset** to consume a specific credit returned for the current account, preferring the earliest known expiry. If Codex provides no credit ID, use the reset in Codex instead.
+- `Check previous reset…` — retry an uncertain reset for the same account, even when no credits remain. A confirmed redemption needs only a usage refresh if its follow-up read fails.
 - `Display Style` — choose `Double Ring` or `Large Readout`.
 - `Launch at Login` — enable or disable the per-user LaunchAgent.
 - `About` — inspect usage, reset times, app version, executable path, and refresh state. While About is open, `Next refresh` updates once per second without issuing additional usage requests.
-- `Quit` — stop the monitor.
+- `Quit` — stop the monitor for this session while preserving Launch at Login for your next login.
 
 `Double Ring` is the default compact style. `Large Readout` keeps both values visible with larger numbers and thin status lines.
 
@@ -118,7 +119,8 @@ If the badge shows `?`, hover it or open `About` first; the app reports a safe f
 The app is intentionally narrow:
 
 - It reads usage through the local Codex app-server method `account/rateLimits/read`.
-- It calls `account/rateLimitResetCredit/consume` only after you explicitly confirm **Use reset**. A pending idempotency key, selected opaque credit ID, and one-way account fingerprint may be kept locally until the result is confirmed, so a retry stays bound to the same account.
+- It calls `account/rateLimitResetCredit/consume` only after you explicitly confirm **Use reset**. A pending idempotency key and selected opaque credit ID may be kept locally until the result is confirmed, to prevent a retry from consuming another reset.
+- Saved reset requests include a hashed account identifier and a specific credit ID. Requests without either binding cannot be retried here; check their status in Codex before explicitly clearing them.
 - It does not read `~/.codex/auth.json`.
 - It does not read or store tokens, cookies, sessions, OAuth credentials, refresh tokens, API keys, passwords, browser storage, or chat history.
 - It does not scrape Codex or browser pages, use screenshots/OCR, automate login, or modify the official Codex app.
@@ -145,6 +147,8 @@ npm run build:macos
 npm run start:macos
 ```
 
+Development startup unloads the existing login task for this session, stops known app copies, and verifies that the workspace executable is running. The saved login configuration is preserved; a failed launch restores the previous login task.
+
 To install the source build into `/Applications` using the guarded migration script:
 
 ```sh
@@ -156,6 +160,7 @@ The build defaults to the Mac's hardware architecture. To select one explicitly:
 ```sh
 BUILD_ARCH=arm64 npm run build:macos
 BUILD_ARCH=x86_64 npm run build:macos
+env -u BUILD_ARCH npm run build:macos  # restore the hardware-native build before running it
 ```
 
 For a one-shot local usage probe, use the built executable:
@@ -174,6 +179,7 @@ npm run test:native
 npm run test:swiftpm       # when the selected toolchain includes XCTest
 BUILD_ARCH=arm64 npm run build:macos
 BUILD_ARCH=x86_64 npm run build:macos
+env -u BUILD_ARCH npm run build:macos  # restore the hardware-native build before running it
 ```
 
 `npm run test:native` covers policy/domain behavior, executable discovery, subprocess faults, installer migration, LaunchAgent handling, sleep/wake recovery, and AppKit badge rendering. Its GUI harnesses require a logged-in macOS graphical session; a GUI process that exits without its explicit PASS marker is treated as a failure.

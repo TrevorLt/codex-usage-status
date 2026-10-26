@@ -19,6 +19,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let resetExpiryDismissalStore: ResetExpiryDismissalStore
     private let resetConsumptionAttemptStore: ResetConsumptionAttemptStore
     private let resetRedemptionFlow: ResetRedemptionFlow
+    private let presentResetAlert: @MainActor (NSAlert) -> NSApplication.ModalResponse
 
     private var timer: Timer?
     private var displayValidityTimer: Timer?
@@ -50,19 +51,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         monotonicNow: @escaping @MainActor () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
         resetExpiryDismissalStore: ResetExpiryDismissalStore = ResetExpiryDismissalStore(),
         resetConsumptionAttemptStore: ResetConsumptionAttemptStore = ResetConsumptionAttemptStore(),
-        resetRedemptionFlow: ResetRedemptionFlow = ResetRedemptionFlow(client: CodexResetRedemptionClient())
+        resetRedemptionFlow: ResetRedemptionFlow = ResetRedemptionFlow(client: CodexResetRedemptionClient()),
+        presentResetAlert: @escaping @MainActor (NSAlert) -> NSApplication.ModalResponse = { $0.runModal() }
     ) {
         self.monotonicNow = monotonicNow
         self.resetExpiryDismissalStore = resetExpiryDismissalStore
         self.resetConsumptionAttemptStore = resetConsumptionAttemptStore
         self.resetRedemptionFlow = resetRedemptionFlow
+        self.presentResetAlert = presentResetAlert
         super.init()
     }
 
     private lazy var dateFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.locale = Locale.current
-        formatter.timeZone = TimeZone.current
         formatter.dateStyle = .medium
         formatter.timeStyle = .medium
         return formatter
@@ -71,8 +73,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private lazy var resetDateFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.timeZone = TimeZone.current
         formatter.dateFormat = "MMM d"
+        return formatter
+    }()
+
+    private lazy var resetExpiryDateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale.current
+        formatter.timeZone = TimeZone.current
+        formatter.dateFormat = "yyyy-MM-dd HH:mm:ss zzz"
         return formatter
     }()
 
@@ -186,7 +195,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     private func requestRecoveryRefresh() {
         guard !isSleeping else { return }
-        if isRefreshing {
+        if isRefreshing || isConsumingReset {
             pendingRecovery = true
             return
         }
@@ -202,7 +211,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     @objc private func quit() {
-        NSApp.terminate(nil)
+        do {
+            try loginItemController.stopForCurrentSession()
+            NSApp.terminate(nil)
+        } catch {
+            showResetNotice(title: "Could not quit", message: error.localizedDescription)
+        }
     }
 
     @objc private func selectDoubleRingStyle() {
@@ -264,13 +278,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     private func aboutMessage() -> String {
-        let aboutFormatter = dateFormatter
-        aboutFormatter.locale = Locale.current
-        aboutFormatter.timeZone = TimeZone.current
-
+        dateFormatter.locale = Locale.current
+        dateFormatter.timeZone = TimeZone.current
+        resetExpiryDateFormatter.locale = Locale.current
+        resetExpiryDateFormatter.timeZone = TimeZone.current
         var status: String
         if let lastUsage {
-            status = lastUsage.tooltip(formatter: aboutFormatter)
+            status = lastUsage.tooltip(formatter: dateFormatter)
             if let lastError { status += "\nLast refresh failed: \(lastError.localizedDescription)" }
         } else if let lastError {
             status = "Last refresh failed: \(lastError.localizedDescription)"
@@ -278,11 +292,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             status = "Waiting for first refresh"
         }
 
-        let lastRefresh = lastRefreshDate.map { aboutFormatter.string(from: $0) } ?? "Never"
+        let lastRefresh = lastRefreshDate.map { dateFormatter.string(from: $0) } ?? "Never"
         let appVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "unknown"
         let codexPath = CodexPathResolver.firstExecutablePath(in: CodexPathResolver.candidatePaths()) ?? "not found in known locations"
         let resetExpiryLines = ResetCreditExpiryDetails(credits: lastUsage?.resetCredits)
-            .aboutLines(dateFormatter: aboutFormatter)
+            .aboutLines(dateFormatter: resetExpiryDateFormatter)
         let resetExpirySection = resetExpiryLines.isEmpty
             ? ""
             : "\n\nEarned reset expirations:\n" + resetExpiryLines.joined(separator: "\n")
@@ -299,58 +313,83 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     @objc private func viewOrUseResets() {
+        guard !isRefreshing, !isConsumingReset, !isSleeping else { return }
+        guard let accountID = lastUsage?.accountID, !accountID.isEmpty,
+              ResetReminderFreshness.canPresent(
+                lastRefreshDate: lastRefreshDate, hasRefreshError: lastError != nil,
+                isAwaitingFreshRead: isAwaitingFreshRead, refreshInterval: refreshPolicy.currentInterval
+              ) else {
+            refresh(manual: true)
+            showResetNotice(title: "Refresh usage first", message: "Read the current Codex account before using or checking a reset.")
+            return
+        }
+
+        if let pending = resetConsumptionAttemptStore.pending {
+            let alert = NSAlert()
+            if pending.belongs(to: accountID), let creditID = pending.creditID,
+               !creditID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                alert.messageText = "Check the previous reset?"
+                alert.informativeText = "This retries your previous reset action. If it already succeeded, it will not use another credit. If it did not reach Codex, it may use that reset now. The action cannot be undone."
+                alert.addButton(withTitle: "Check reset")
+                alert.addButton(withTitle: "Close")
+                if presentResetAlert(alert) == .alertFirstButtonReturn {
+                    consumeReset(creditID: creditID, accountID: accountID)
+                }
+            } else {
+                alert.messageText = "Saved reset cannot be retried safely"
+                alert.informativeText = "Its account or reset credit ID cannot be verified. Check its outcome in Codex first. Clearing this saved request loses retry protection; a later reset could consume another credit."
+                alert.addButton(withTitle: "Keep saved request")
+                alert.addButton(withTitle: "Clear saved request")
+                if presentResetAlert(alert) == .alertSecondButtonReturn {
+                    resetConsumptionAttemptStore.clear()
+                    renderCurrentBadge()
+                }
+            }
+            return
+        }
+
         guard let resetSummary = lastUsage?.resetCredits,
               resetSummary.availableCount > 0 else {
             showResetNotice(title: "No reset available", message: "No earned reset is available in the latest account read. Refresh usage and try again.")
             return
         }
-        guard let accountID = lastUsage?.accountID, !accountID.isEmpty else {
-            showResetNotice(
-                title: "Account unavailable",
-                message: ResetConsumptionAttemptStoreError.accountIdentityUnavailable.localizedDescription
-            )
-            return
-        }
-        if resetConsumptionAttemptStore.hasUnresolvedAttempt(forAccountID: accountID) {
-            showResetNotice(
-                title: "Previous reset unresolved",
-                message: ResetConsumptionAttemptStoreError.unresolvedAttemptForDifferentAccount.localizedDescription
-            )
-            return
-        }
 
+        let now = Date().timeIntervalSince1970
         let selectedCredit = (resetSummary.credits ?? [])
-            .compactMap { credit -> (RateLimitResetCredit, Date)? in
-                guard let expiry = credit.availableCodexExpiry, expiry > Date() else { return nil }
-                return (credit, expiry)
+            .filter { credit in
+                credit.id?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false && credit.resetType == "codexRateLimits"
+                    && credit.status == "available"
+                    && (credit.expiresAt.map { $0.isFinite && $0 > now } ?? true)
             }
-            .sorted { $0.1 < $1.1 }
-            .first?.0
+            .sorted { ($0.expiresAt ?? .infinity) < ($1.expiresAt ?? .infinity) }
+            .first
+        guard let selectedCredit, let creditID = selectedCredit.id else {
+            showResetNotice(title: "Use this reset in Codex", message: "Codex did not provide an available reset credit ID. Use the reset in Codex instead.")
+            return
+        }
 
         let alert = NSAlert()
         alert.messageText = "Use one earned reset?"
-        if let expiry = selectedCredit?.availableCodexExpiry {
+        if let expiry = selectedCredit.availableCodexExpiry {
             let expiryText = resetDateFormatter.string(from: expiry)
             alert.informativeText = "This will immediately use one reset credit, expiring \(expiryText), through Codex. The action cannot be undone."
         } else {
-            alert.informativeText = "This will immediately use one reset credit chosen by Codex. The action cannot be undone."
+            alert.informativeText = "This will immediately use the selected reset credit through Codex. Its expiration time is unavailable. The action cannot be undone."
         }
         alert.addButton(withTitle: "Use reset")
         alert.addButton(withTitle: "Close")
-        guard alert.runModal() == .alertFirstButtonReturn else { return }
-        consumeReset(creditID: selectedCredit?.id, accountID: accountID)
+        guard presentResetAlert(alert) == .alertFirstButtonReturn else { return }
+        consumeReset(creditID: creditID, accountID: accountID)
     }
 
-    private func consumeReset(creditID: String?, accountID: String) {
-        guard !isConsumingReset else { return }
-        let attempt: PendingResetConsumptionAttempt
-        do {
-            attempt = try resetConsumptionAttemptStore.begin(creditID: creditID, accountID: accountID)
-        } catch {
-            showResetNotice(title: "Previous reset unresolved", message: error.localizedDescription)
-            return
-        }
+    private func consumeReset(creditID: String, accountID: String) {
+        guard !isConsumingReset, !isRefreshing, !isSleeping,
+              lastUsage?.accountID == accountID,
+              let attempt = resetConsumptionAttemptStore.begin(creditID: creditID, accountID: accountID) else { return }
         isConsumingReset = true
+        timer?.invalidate()
+        nextRefreshAt = nil
+        let generation = lifecycleGeneration
         renderCurrentBadge()
 
         Task { [weak self] in
@@ -358,55 +397,56 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             let result = await self.resetRedemptionFlow.redeem(
                 creditID: attempt.creditID,
                 idempotencyKey: attempt.idempotencyKey,
+                accountID: accountID,
                 previousUsage: self.lastUsage,
                 now: Date()
             )
+            var needsRefresh = false
             switch result {
             case .confirmed(let usage, let changedWindows):
-                self.applyUsage(usage, confirmedResetWindows: changedWindows)
                 self.resetConsumptionAttemptStore.clear()
-                self.showResetNotice(title: "Reset used", message: "Codex confirmed the reset and the usage status has been refreshed.")
+                let canApply = generation == self.lifecycleGeneration && !self.isSleeping
+                if canApply {
+                    self.applyUsage(usage, confirmedResetWindows: changedWindows)
+                }
+                self.showResetNotice(title: "Reset used", message: canApply
+                    ? "Codex confirmed the reset and the usage status has been refreshed."
+                    : "Codex confirmed the reset. Usage will be read again after wake.")
             case .refreshPending(let detail):
+                self.resetConsumptionAttemptStore.clear()
                 self.lastError = ResetRedemptionFlowError(message: detail)
                 self.renderCurrentBadge()
                 self.showResetNotice(
                     title: "Reset sent; refresh pending",
-                    message: "Codex accepted this redemption, but the latest usage could not be read. Retry the reset action to check the same redemption safely, or refresh again later. Details: \(detail)"
+                    message: "Codex confirmed the reset, but the latest usage could not be read. Refresh usage to update the status. Details: \(detail)"
                 )
             case .nothingToReset:
                 self.resetConsumptionAttemptStore.clear()
+                needsRefresh = true
                 self.showResetNotice(title: "Nothing to reset", message: "Codex has no rate-limit window eligible for a reset right now.")
-                self.refresh(manual: true)
             case .noCredit:
                 self.resetConsumptionAttemptStore.clear()
+                needsRefresh = true
                 self.showResetNotice(title: "No reset available", message: "Codex reports that no earned reset credit is available.")
-                self.refresh(manual: true)
-            case .preflightFailed(let detail):
-                self.resetConsumptionAttemptStore.clear()
-                self.showResetNotice(
-                    title: "Account could not be verified",
-                    message: "No reset request was sent. Refresh usage and try again. Details: \(detail)"
-                )
-            case .accountChanged:
-                self.resetConsumptionAttemptStore.clear()
-                self.showResetNotice(
-                    title: "Codex account changed",
-                    message: "No reset request was sent. Refresh usage, then confirm the reset for the active account."
-                )
-            case .accountIdentityUnavailable:
-                self.resetConsumptionAttemptStore.clear()
-                self.showResetNotice(
-                    title: "Account unavailable",
-                    message: ResetConsumptionAttemptStoreError.accountIdentityUnavailable.localizedDescription
-                )
             case .statusUnclear(let detail):
                 self.showResetNotice(
                     title: "Reset status unclear",
                     message: "The app could not confirm whether Codex used the reset. Retry this action to check the same redemption safely. Details: \(detail)"
                 )
+            case .accountNotVerified(let detail):
+                self.lastError = ResetRedemptionFlowError(message: detail)
+                self.showResetNotice(title: "Reset not sent", message: "The current account could not be verified. The saved request is unchanged. Refresh usage before retrying. Details: \(detail)")
             }
             self.isConsumingReset = false
+            self.lastAttemptUptime = self.monotonicNow()
             self.renderCurrentBadge()
+            if needsRefresh {
+                self.refresh(manual: true)
+            } else {
+                let interval = self.lastError == nil ? self.refreshPolicy.currentInterval : self.refreshPolicy.intervalAfterFailure()
+                self.scheduleNextRefresh(after: interval)
+                self.finishPendingRecovery()
+            }
         }
     }
 
@@ -415,7 +455,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         alert.messageText = title
         alert.informativeText = message
         alert.addButton(withTitle: "OK")
-        alert.runModal()
+        _ = presentResetAlert(alert)
     }
 
     @objc private func dismissResetExpiryReminder() {
@@ -450,6 +490,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     private func refresh(manual: Bool = false) {
         guard !isSleeping else { return }
+        guard !isConsumingReset else {
+            pendingRecovery = true
+            return
+        }
         guard !isRefreshing else {
             if manual { pendingRecovery = true }
             return
@@ -698,7 +742,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     private func updateResetReminderMenu(for reminder: ResetExpiryReminder?) {
-        resetReminderMenuContent.update(reminder, dateFormatter: resetDateFormatter)
+        resetReminderMenuContent.update(reminder, dateFormatter: resetDateFormatter,
+                                        hasPendingReset: resetConsumptionAttemptStore.pending != nil)
         resetReminderMenuContent.viewItem.isEnabled = !isRefreshing && !isConsumingReset
     }
 

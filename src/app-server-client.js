@@ -446,18 +446,6 @@ export function safeErrorMessage(error) {
     : "An unexpected error occurred while reading Codex usage.";
 }
 
-export function redactSensitive(value) {
-  if (typeof value !== "string") {
-    return "";
-  }
-
-  const redactedAssignments = value.replace(
-    /((?:token|cookie|session|authorization|api[_-]?key)[ \t]*[:=][ \t]*)[^\r\n]*/gi,
-    "$1[redacted]",
-  );
-  return redactJwtSegments(redactedAssignments);
-}
-
 function expandCurrentUserTilde(value, homeDirectory) {
   const trimmed = value.trim();
   if (trimmed === "~") {
@@ -515,59 +503,4 @@ function waitForChildExit(child, timeoutMs) {
       finish(true);
     }
   });
-}
-
-function redactJwtSegments(value) {
-  const output = [];
-  let index = 0;
-
-  while (index < value.length) {
-    if (!isJwtSegmentCharacter(value.charCodeAt(index))) {
-      output.push(value[index]);
-      index += 1;
-      continue;
-    }
-
-    const firstStart = index;
-    const firstEnd = scanJwtSegment(value, firstStart);
-    const secondStart = firstEnd + 1;
-    const secondEnd = value.charCodeAt(firstEnd) === 46 ? scanJwtSegment(value, secondStart) : secondStart;
-    const thirdStart = secondEnd + 1;
-    const thirdEnd = value.charCodeAt(secondEnd) === 46 ? scanJwtSegment(value, thirdStart) : thirdStart;
-
-    if (
-      firstEnd - firstStart >= 20 &&
-      value.charCodeAt(firstEnd) === 46 &&
-      secondEnd - secondStart >= 20 &&
-      value.charCodeAt(secondEnd) === 46 &&
-      thirdEnd - thirdStart >= 20
-    ) {
-      output.push("[redacted-jwt]");
-      index = thirdEnd;
-      continue;
-    }
-
-    output.push(value.slice(firstStart, firstEnd));
-    index = firstEnd;
-  }
-
-  return output.join("");
-}
-
-function scanJwtSegment(value, start) {
-  let end = start;
-  while (isJwtSegmentCharacter(value.charCodeAt(end))) {
-    end += 1;
-  }
-  return end;
-}
-
-function isJwtSegmentCharacter(code) {
-  return (
-    (code >= 48 && code <= 57) ||
-    (code >= 65 && code <= 90) ||
-    (code >= 97 && code <= 122) ||
-    code === 45 ||
-    code === 95
-  );
 }

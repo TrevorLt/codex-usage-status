@@ -21,7 +21,7 @@ struct ResetRedemptionFlowAudit {
 
         let resetClient = StubResetClient(consume: .success("reset"), read: .success(afterFiveHourReset))
         let resetResult = await ResetRedemptionFlow(client: resetClient).redeem(
-            creditID: "credit-5h", idempotencyKey: "attempt-1", previousUsage: previous, now: now
+            creditID: "credit-5h", idempotencyKey: "attempt-1", accountID: "flow-test-account", previousUsage: previous, now: now
         )
         switch resetResult {
         case .confirmed(let usage, let windows):
@@ -31,7 +31,7 @@ struct ResetRedemptionFlowAudit {
             check(false, "a successful redemption followed by a fresh read is confirmed")
         }
         let resetCounts = await resetClient.callCounts()
-        check(resetCounts == (1, 2), "a successful redemption verifies the active account before consuming, then reads refreshed usage")
+        check(resetCounts == (1, 2), "a successful redemption performs one consume with account verification and a follow-up read")
 
         let weeklyPrevious = try makeUsage(fiveHour: 52, weekly: 16, now: now, fiveHourResetOffset: 3_600, weeklyResetOffset: 86_400)
         let weeklyFresh = try makeUsage(
@@ -40,7 +40,7 @@ struct ResetRedemptionFlowAudit {
         )
         let weeklyClient = StubResetClient(consume: .success("alreadyRedeemed"), read: .success(weeklyFresh))
         let weeklyResult = await ResetRedemptionFlow(client: weeklyClient).redeem(
-            creditID: nil, idempotencyKey: "attempt-2", previousUsage: weeklyPrevious, now: now
+            creditID: "credit-weekly", idempotencyKey: "attempt-2", accountID: "flow-test-account", previousUsage: weeklyPrevious, now: now
         )
         if case .confirmed(_, let windows) = weeklyResult {
             check(windows == [.weekly], "an idempotent success can highlight only the recovered weekly window")
@@ -50,7 +50,7 @@ struct ResetRedemptionFlowAudit {
 
         let unchangedClient = StubResetClient(consume: .success("reset"), read: .success(previous))
         let unchangedResult = await ResetRedemptionFlow(client: unchangedClient).redeem(
-            creditID: "credit-unchanged", idempotencyKey: "attempt-3", previousUsage: previous, now: now
+            creditID: "credit-unchanged", idempotencyKey: "attempt-3", accountID: "flow-test-account", previousUsage: previous, now: now
         )
         if case .confirmed(_, let windows) = unchangedResult {
             check(windows.isEmpty, "a successful request without changed fresh readings triggers no green window")
@@ -61,10 +61,10 @@ struct ResetRedemptionFlowAudit {
         for outcome in ["noCredit", "nothingToReset"] {
             let client = StubResetClient(consume: .success(outcome), read: .success(previous))
             let result = await ResetRedemptionFlow(client: client).redeem(
-                creditID: "unused", idempotencyKey: "attempt-\(outcome)", previousUsage: previous, now: now
+                creditID: "unused", idempotencyKey: "attempt-\(outcome)", accountID: "flow-test-account", previousUsage: previous, now: now
             )
             let counts = await client.callCounts()
-            check(counts == (1, 1), "\(outcome) verifies account identity before consume and skips post-consume read")
+            check(counts.0 == 1 && counts.1 == 1, "\(outcome) does not trigger a follow-up usage read")
             if outcome == "noCredit" {
                 if case .noCredit = result {} else { check(false, "noCredit remains a distinct outcome") }
             } else if case .nothingToReset = result {
@@ -75,75 +75,65 @@ struct ResetRedemptionFlowAudit {
 
         let unknownClient = StubResetClient(consume: .success("futureOutcome"), read: .success(previous))
         let unknownResult = await ResetRedemptionFlow(client: unknownClient).redeem(
-            creditID: "credit", idempotencyKey: "attempt-unknown", previousUsage: previous, now: now
+            creditID: "credit", idempotencyKey: "attempt-unknown", accountID: "flow-test-account", previousUsage: previous, now: now
         )
         let unknownCounts = await unknownClient.callCounts()
-        check(unknownCounts == (1, 1), "an unknown outcome cannot accidentally request a post-consume read")
+        check(unknownCounts == (1, 1), "an unknown outcome cannot accidentally request a fresh read")
         if case .statusUnclear = unknownResult {} else { check(false, "an unrecognized response stays status unclear") }
 
         let consumeFailure = StubResetClient(consume: .failure(.transport), read: .success(previous))
         let consumeFailureResult = await ResetRedemptionFlow(client: consumeFailure).redeem(
-            creditID: "credit", idempotencyKey: "attempt-failed", previousUsage: previous, now: now
+            creditID: "credit", idempotencyKey: "attempt-failed", accountID: "flow-test-account", previousUsage: previous, now: now
         )
         let consumeFailureCounts = await consumeFailure.callCounts()
-        check(consumeFailureCounts == (1, 1), "a failed consume happens only after active-account preflight")
+        check(consumeFailureCounts == (1, 1), "a failed consume does not perform a follow-up read or claim a reset")
         if case .statusUnclear = consumeFailureResult {} else { check(false, "a failed consume remains safely retryable") }
 
-        let readFailure = StubResetClient(consume: .success("reset"), read: .failure(.transport))
+        let readFailure = StubResetClient(consume: .success("reset"), read: .failure(.transport), preflight: previous)
         let readFailureResult = await ResetRedemptionFlow(client: readFailure).redeem(
-            creditID: "credit", idempotencyKey: "attempt-pending", previousUsage: previous, now: now
+            creditID: "credit", idempotencyKey: "attempt-pending", accountID: "flow-test-account", previousUsage: previous, now: now
         )
-        let readFailureCounts = await readFailure.callCounts()
-        check(readFailureCounts == (0, 1), "a failed account preflight does not send a reset request")
-        if case .preflightFailed = readFailureResult {} else { check(false, "failed preflight is reported before any reset request") }
+        if case .refreshPending = readFailureResult {} else { check(false, "accepted redemption with failed read is reported as refresh pending") }
 
-        let wrongAccount = try makeUsage(
-            fiveHour: 18, weekly: 67, now: now,
-            fiveHourResetOffset: 3_600, weeklyResetOffset: 86_400,
-            accountID: "different-account"
+        let switchedAccount = StubResetClient(consume: .success("reset"), read: .success(previous))
+        let switchedResult = await ResetRedemptionFlow(client: switchedAccount).redeem(
+            creditID: "old-account-credit", idempotencyKey: "old-account-key", accountID: "different-account", previousUsage: previous, now: now
         )
-        let accountChangedClient = StubResetClient(consume: .success("reset"), read: .success(wrongAccount))
-        let accountChangedResult = await ResetRedemptionFlow(client: accountChangedClient).redeem(
-            creditID: "credit", idempotencyKey: "attempt-account-change", previousUsage: previous, now: now
-        )
-        let accountChangedCounts = await accountChangedClient.callCounts()
-        check(accountChangedCounts == (0, 1), "a changed active account blocks consume after one preflight read")
-        if case .accountChanged = accountChangedResult {} else { check(false, "account switch before consume is reported explicitly") }
+        let switchedCounts = await switchedAccount.callCounts()
+        check(switchedCounts == (0, 1), "an account switch after confirmation sends no consume request")
+        if case .accountNotVerified = switchedResult {} else { check(false, "a changed account requires verification") }
 
-        let missingAccount = try makeUsage(
-            fiveHour: 18, weekly: 67, now: now,
-            fiveHourResetOffset: 3_600, weeklyResetOffset: 86_400,
-            accountID: nil
+        let unavailableAccount = StubResetClient(consume: .success("reset"), read: .failure(.transport))
+        let unavailableResult = await ResetRedemptionFlow(client: unavailableAccount).redeem(
+            creditID: "unverified-credit", idempotencyKey: "unverified-key", accountID: "flow-test-account", previousUsage: previous, now: now
         )
-        let missingAccountClient = StubResetClient(consume: .success("reset"), read: .success(previous))
-        let missingAccountResult = await ResetRedemptionFlow(client: missingAccountClient).redeem(
-            creditID: "credit", idempotencyKey: "attempt-missing-account", previousUsage: missingAccount, now: now
-        )
-        let missingAccountCounts = await missingAccountClient.callCounts()
-        check(missingAccountCounts == (0, 0), "a missing account identity blocks all network operations")
-        if case .accountIdentityUnavailable = missingAccountResult {} else { check(false, "missing account identity is explicit") }
+        let unavailableCounts = await unavailableAccount.callCounts()
+        check(unavailableCounts == (0, 1), "failed account verification sends no consume request")
+        if case .accountNotVerified = unavailableResult {} else { check(false, "unreadable account stays unverified") }
 
-        let acceptedThenUnreadable = StubResetClient(consume: .success("reset"), read: [
-            .success(previous), .failure(.transport)
-        ])
-        let acceptedReadFailureResult = await ResetRedemptionFlow(client: acceptedThenUnreadable).redeem(
-            creditID: "credit", idempotencyKey: "attempt-refresh-pending", previousUsage: previous, now: now
-        )
-        let acceptedReadFailureCounts = await acceptedThenUnreadable.callCounts()
-        check(acceptedReadFailureCounts == (1, 2), "an accepted reset performs account preflight before a failed post-consume refresh")
-        if case .refreshPending = acceptedReadFailureResult {} else { check(false, "accepted redemption with failed post-consume read is reported as refresh pending") }
+        for creditID in [nil, "", " \n "] as [String?] {
+            let missingID = StubResetClient(consume: .success("reset"), read: .success(previous))
+            let missingResult = await ResetRedemptionFlow(client: missingID).redeem(
+                creditID: creditID, idempotencyKey: "missing-credit-key", accountID: "flow-test-account", previousUsage: previous, now: now
+            )
+            let counts = await missingID.callCounts()
+            check(counts == (0, 0), "a missing credit ID cannot reach account lookup or consumption")
+            if case .accountNotVerified = missingResult {} else { check(false, "a missing credit ID must be handled in Codex") }
+        }
 
-        let switchedAfterConsume = StubResetClient(consume: .success("reset"), read: [
-            .success(previous), .success(wrongAccount)
-        ])
-        let switchedAfterConsumeResult = await ResetRedemptionFlow(client: switchedAfterConsume).redeem(
-            creditID: "credit", idempotencyKey: "attempt-post-account-change", previousUsage: previous, now: now
+        let otherUsage = try makeUsage(fiveHour: 100, weekly: 100, now: now,
+            fiveHourResetOffset: 3_600, weeklyResetOffset: 86_400, accountID: "other-account")
+        let switchedAfterConsume = StubResetClient(consume: .success("reset"), read: .success(otherUsage), preflight: previous)
+        let switchedAfterResult = await ResetRedemptionFlow(client: switchedAfterConsume).redeem(
+            creditID: "account-bound-credit", idempotencyKey: "follow-up-switch", accountID: "flow-test-account", previousUsage: previous, now: now
         )
-        let switchedAfterConsumeCounts = await switchedAfterConsume.callCounts()
-        check(switchedAfterConsumeCounts == (1, 2), "post-consume account changes are detected after the idempotent request")
-        if case .refreshPending = switchedAfterConsumeResult {} else { check(false, "a response read from another account cannot falsely confirm a reset") }
+        if case .refreshPending = switchedAfterResult {
+            check(true, "a different account's follow-up read cannot be confirmed or highlighted")
+        } else {
+            check(false, "a different account's usage must not be applied to the redemption")
+        }
 
-        print("RESET REDEMPTION FLOW PASS: \(assertions) assertions; account preflight, account-scope safety, mock consume and fresh-read paths")
+        print("RESET REDEMPTION FLOW PASS: \(assertions) assertions; mock consume and fresh-read paths")
     }
 
     private static func makeUsage(
@@ -152,7 +142,7 @@ struct ResetRedemptionFlowAudit {
         now: Date,
         fiveHourResetOffset: TimeInterval,
         weeklyResetOffset: TimeInterval,
-        accountID: String? = "flow-test-account"
+        accountID: String = "flow-test-account"
     ) throws -> UsageSummary {
         try UsageSummary(response: RateLimitsResponse(
             rateLimits: RateLimitSnapshot(
@@ -175,29 +165,26 @@ struct ResetRedemptionFlowAudit {
 
 private actor StubResetClient: ResetRedemptionClient {
     private let consumeResult: Result<String, FixtureError>
-    private let readResults: [Result<UsageSummary, FixtureError>]
+    private let readResult: Result<UsageSummary, FixtureError>
+    private let preflight: UsageSummary?
     private var consumeCallCount = 0
     private var readCallCount = 0
 
-    init(consume: Result<String, FixtureError>, read: Result<UsageSummary, FixtureError>) {
+    init(consume: Result<String, FixtureError>, read: Result<UsageSummary, FixtureError>, preflight: UsageSummary? = nil) {
+        self.preflight = preflight
         consumeResult = consume
-        readResults = [read]
+        readResult = read
     }
 
-    init(consume: Result<String, FixtureError>, read: [Result<UsageSummary, FixtureError>]) {
-        consumeResult = consume
-        readResults = read.isEmpty ? [.failure(.transport)] : read
-    }
-
-    func consumeReset(creditID: String?, idempotencyKey: String) async throws -> String {
+    func consumeReset(creditID: String, idempotencyKey: String) async throws -> String {
         consumeCallCount += 1
         return try consumeResult.get()
     }
 
     func fetchUsage() async throws -> UsageSummary {
         readCallCount += 1
-        let index = min(readCallCount - 1, readResults.count - 1)
-        return try readResults[index].get()
+        if readCallCount == 1, let preflight { return preflight }
+        return try readResult.get()
     }
 
     func callCounts() -> (Int, Int) { (consumeCallCount, readCallCount) }
