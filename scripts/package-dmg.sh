@@ -24,6 +24,13 @@ case "$BUILD_ARCH" in
     ;;
 esac
 
+ACTUAL_ARCH="$(lipo -archs "$APP_DIR/Contents/MacOS/CodexUsageStatus")"
+ACTUAL_VERSION="$(plutil -extract CFBundleShortVersionString raw -o - "$APP_DIR/Contents/Info.plist")"
+if [[ "$ACTUAL_ARCH" != "$BUILD_ARCH" || "$ACTUAL_VERSION" != "$VERSION" ]]; then
+  echo "App bundle is $ACTUAL_ARCH version $ACTUAL_VERSION; expected $BUILD_ARCH version $VERSION. Rebuild before packaging." >&2
+  exit 1
+fi
+
 mkdir -p "$DIST_DIR"
 STAGING_DIR="$(mktemp -d "${TMPDIR:-/tmp}/codex-usage-status-dmg.XXXXXX")"
 HELPER_DIR="$(mktemp -d "${TMPDIR:-/tmp}/codex-usage-status-dmg-helper.XXXXXX")"

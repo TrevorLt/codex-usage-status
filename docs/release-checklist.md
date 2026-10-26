@@ -28,8 +28,11 @@ test -f dist/CodexUsageStatus-0.1.4-macos-x86_64.dmg
 Run a live local data-source check on a signed-in Codex desktop installation:
 
 ```sh
+env -u BUILD_ARCH npm run build:macos
 "dist/Codex Usage Status.app/Contents/MacOS/CodexUsageStatus" --once
 ```
+
+Run probes only with the hardware-native build. On Apple silicon, validate Intel artifacts with `lipo` and code-signature checks; executing an Intel build through Rosetta can trigger macOS compatibility warnings for the app name.
 
 ## Safety checks
 

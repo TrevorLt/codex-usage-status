@@ -89,6 +89,20 @@ struct MenuStabilityAudit {
             exit(1)
         }
 
+        content.update(nil, dateFormatter: formatter, hasPendingReset: true)
+        guard !content.item.isHidden,
+              content.item.title == "Reset status needs checking",
+              content.viewItem.title == "Check previous reset…",
+              content.dismissItem.isHidden else {
+            fputs("FAIL: an uncertain reset has no retry action without available credits\n", stderr)
+            exit(1)
+        }
+        content.update(reminder, dateFormatter: formatter)
+        guard content.viewItem.title == "Use one reset…" else {
+            fputs("FAIL: resolved retry did not restore the normal reset action\n", stderr)
+            exit(1)
+        }
+
         print("MENU STABILITY PASS: stable submenu structure across reminder updates")
     }
 }

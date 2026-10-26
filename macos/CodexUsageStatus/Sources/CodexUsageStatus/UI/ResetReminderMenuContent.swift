@@ -26,7 +26,15 @@ final class ResetReminderMenuContent {
         dismissItem.action = dismissAction
     }
 
-    func update(_ reminder: ResetExpiryReminder?, dateFormatter: DateFormatter) {
+    func update(_ reminder: ResetExpiryReminder?, dateFormatter: DateFormatter, hasPendingReset: Bool = false) {
+        viewItem.title = hasPendingReset ? "Check previous reset…" : "Use one reset…"
+        if hasPendingReset {
+            item.isHidden = false
+            item.title = "Reset status needs checking"
+            separatorItem.isHidden = true
+            dismissItem.isHidden = true
+            return
+        }
         guard let reminder else {
             item.isHidden = true
             item.title = ""

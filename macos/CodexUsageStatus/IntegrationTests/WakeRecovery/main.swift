@@ -41,9 +41,17 @@ guard let dismissalDefaults = UserDefaults(suiteName: dismissalSuite) else {
 }
 let dismissalStore = ResetExpiryDismissalStore(defaults: dismissalDefaults)
 MainActor.assumeIsolated {
+    let attemptStore = ResetConsumptionAttemptStore(defaults: dismissalDefaults)
+    var resetDialogResponse = NSApplication.ModalResponse.alertSecondButtonReturn
+    var resetDialogTitles: [String] = []
     let delegate = AppDelegate(
         monotonicNow: { CodexUsageFetcher.uptime },
-        resetExpiryDismissalStore: dismissalStore
+        resetExpiryDismissalStore: dismissalStore,
+        resetConsumptionAttemptStore: attemptStore,
+        presentResetAlert: { alert in
+            resetDialogTitles.append(alert.messageText)
+            return alert.buttons.count > 1 ? resetDialogResponse : .alertFirstButtonReturn
+        }
     )
     app.delegate = delegate
     app.finishLaunching()
@@ -89,6 +97,119 @@ MainActor.assumeIsolated {
         require(!reminderItem.isHidden && reminderItem.title == "1 reset expires in 1 hour", "real menu shows the current synthetic expiry")
         require(hasMenuTitle("Use one reset…") && hasMenuTitle("Dismiss this expiry reminder"), "expiry submenu exposes direct reset use and batch dismissal")
 
+        CodexUsageFetcher.resetCreditID = ""
+        delegate.perform(NSSelectorFromString("refreshFromMenu"))
+        try? await Task.sleep(for: .milliseconds(150))
+        delegate.perform(NSSelectorFromString("viewOrUseResets"))
+        require(CodexUsageFetcher.resetConsumeCount == 0 && attemptStore.pending == nil
+                && resetDialogTitles.last == "Use this reset in Codex",
+                "count-only reset data cannot create or send a server-selected redemption")
+        CodexUsageFetcher.resetCreditID = "synthetic-credit-1"
+        CodexUsageFetcher.hasResetExpiry = false
+        delegate.perform(NSSelectorFromString("refreshFromMenu"))
+        try? await Task.sleep(for: .milliseconds(150))
+        delegate.perform(NSSelectorFromString("viewOrUseResets"))
+        require(resetDialogTitles.last == "Use one earned reset?" && attemptStore.pending == nil,
+                "a known credit ID can be selected without inventing its expiry")
+        CodexUsageFetcher.hasResetExpiry = true
+        delegate.perform(NSSelectorFromString("refreshFromMenu"))
+        try? await Task.sleep(for: .milliseconds(150))
+
+        let unboundCredit = attemptStore.begin(creditID: nil, accountID: "synthetic-account")!
+        delegate.perform(NSSelectorFromString("refreshFromMenu"))
+        try? await Task.sleep(for: .milliseconds(150))
+        resetDialogResponse = .alertFirstButtonReturn
+        delegate.perform(NSSelectorFromString("viewOrUseResets"))
+        require(attemptStore.pending == unboundCredit && CodexUsageFetcher.resetConsumeCount == 0,
+                "legacy attempts without a credit ID remain saved and cannot be consumed")
+        resetDialogResponse = .alertSecondButtonReturn
+        delegate.perform(NSSelectorFromString("viewOrUseResets"))
+        require(attemptStore.pending == nil && CodexUsageFetcher.resetConsumeCount == 0,
+                "explicitly clearing an ID-less legacy request never substitutes a new credit")
+
+        delegate.perform(NSSelectorFromString("viewOrUseResets"))
+        require(CodexUsageFetcher.resetConsumeCount == 0 && attemptStore.pending == nil,
+                "closing confirmation sends no consume request and saves no attempt")
+
+        let pending = attemptStore.begin(creditID: "saved-credit", accountID: "synthetic-account")!
+        CodexUsageFetcher.resetAvailableCount = 0
+        delegate.perform(NSSelectorFromString("refreshFromMenu"))
+        try? await Task.sleep(for: .milliseconds(150))
+        require(!reminderItem.isHidden && reminderContent.viewItem.title == "Check previous reset…",
+                "a saved attempt remains accessible with zero available credits")
+        resetDialogResponse = .alertFirstButtonReturn
+        CodexUsageFetcher.resetConsumeShouldFail = true
+        delegate.perform(NSSelectorFromString("viewOrUseResets"))
+        try? await Task.sleep(for: .milliseconds(150))
+        require(resetDialogTitles.contains("Check the previous reset?")
+                && CodexUsageFetcher.lastConsumedCreditID == "saved-credit"
+                && CodexUsageFetcher.lastResetIdempotencyKey == pending.idempotencyKey
+                && attemptStore.pending == pending,
+                "uncertain retries describe and retain their original credit and key")
+
+        CodexUsageFetcher.resetConsumeShouldFail = false
+        CodexUsageFetcher.resetConsumeOutcome = "alreadyRedeemed"
+        CodexUsageFetcher.suspendReadAfterConsume = true
+        delegate.perform(NSSelectorFromString("viewOrUseResets"))
+        try? await Task.sleep(for: .milliseconds(150))
+        require(CodexUsageFetcher.continuation != nil, "redemption follow-up read is genuinely in flight")
+        let duringResetCount = CodexUsageFetcher.count
+        delegate.perform(NSSelectorFromString("refreshFromMenu"))
+        delegate.perform(NSSelectorFromString("timerDidFire"))
+        try? await Task.sleep(for: .milliseconds(100))
+        require(CodexUsageFetcher.count == duringResetCount, "manual and timer refreshes cannot overlap redemption")
+        CodexUsageFetcher.continuation?.resume()
+        CodexUsageFetcher.continuation = nil
+        CodexUsageFetcher.suspendReadAfterConsume = false
+        try? await Task.sleep(for: .milliseconds(150))
+        require(attemptStore.pending == nil && reminderItem.isHidden,
+                "confirmed last-credit redemption resolves the attempt and removes retry state")
+        require(CodexUsageFetcher.count == duringResetCount,
+                "deferred refreshes obey the floor instead of immediately replacing the reset read")
+
+        CodexUsageFetcher.resetAvailableCount = 1
+        CodexUsageFetcher.resetConsumeOutcome = "reset"
+        delegate.perform(NSSelectorFromString("refreshFromMenu"))
+        try? await Task.sleep(for: .milliseconds(150))
+        CodexUsageFetcher.failReadAfterConsume = true
+        delegate.perform(NSSelectorFromString("viewOrUseResets"))
+        try? await Task.sleep(for: .milliseconds(150))
+        require(attemptStore.pending == nil && resetDialogTitles.contains("Reset sent; refresh pending"),
+                "accepted redemption clears its key even when the follow-up read fails")
+        CodexUsageFetcher.failReadAfterConsume = false
+        CodexUsageFetcher.shouldFail = false
+        delegate.perform(NSSelectorFromString("refreshFromMenu"))
+        try? await Task.sleep(for: .milliseconds(150))
+
+        let otherAccountAttempt = attemptStore.begin(creditID: "other-credit", accountID: "other-account")!
+        delegate.perform(NSSelectorFromString("refreshFromMenu"))
+        try? await Task.sleep(for: .milliseconds(150))
+        let beforeWrongAccount = CodexUsageFetcher.resetConsumeCount
+        delegate.perform(NSSelectorFromString("viewOrUseResets"))
+        require(CodexUsageFetcher.resetConsumeCount == beforeWrongAccount && attemptStore.pending == otherAccountAttempt,
+                "another account's request is kept without being sent")
+        resetDialogResponse = .alertSecondButtonReturn
+        delegate.perform(NSSelectorFromString("viewOrUseResets"))
+        require(attemptStore.pending == nil && CodexUsageFetcher.resetConsumeCount == beforeWrongAccount,
+                "explicitly clearing a mismatched request never consumes a credit")
+
+        CodexUsageFetcher.suspendNext = true
+        delegate.perform(NSSelectorFromString("refreshFromMenu"))
+        try? await Task.sleep(for: .milliseconds(150))
+        resetDialogResponse = .alertFirstButtonReturn
+        delegate.perform(NSSelectorFromString("viewOrUseResets"))
+        require(CodexUsageFetcher.resetConsumeCount == beforeWrongAccount,
+                "redemption cannot start while a normal poll is in flight")
+        CodexUsageFetcher.continuation?.resume()
+        CodexUsageFetcher.continuation = nil
+        try? await Task.sleep(for: .milliseconds(150))
+
+        CodexUsageFetcher.fiveHourUsedPercent = 35.1
+        CodexUsageFetcher.resetAvailableCount = 1
+        delegate.perform(NSSelectorFromString("refreshFromMenu"))
+        try? await Task.sleep(for: .milliseconds(150))
+        require(reminderItem.title == "1 reset expires in 1 hour", "reset-action checks restore the normal fixture")
+
         let countdownView = AboutRefreshCountdownView()
         let countdownNow = Date(timeIntervalSince1970: 1_900_000_000)
         countdownView.update(nextRefreshAt: countdownNow.addingTimeInterval(60), isRefreshing: false, isSleeping: false, now: countdownNow)
@@ -99,7 +220,8 @@ MainActor.assumeIsolated {
         require(countdownView.visibleText == "Next refresh: in 2m 0s", "a completed refresh replaces zero with the next interval")
         let aboutAlert = NSAlert()
         aboutAlert.accessoryView = countdownView
-        require(aboutAlert.accessoryView === countdownView, "About alert owns the live countdown accessory")
+        aboutAlert.layout()
+        require(countdownView.window != nil, "live countdown is attached to the visible About alert")
         require(hasSubview(named: "BadgeExpiryReminderDotView"), "real status item contains the amber expiry dot")
         let menuOpenForwarder = MenuOpenForwarder()
         menuOpenForwarder.forward = { [weak delegate] menu in
@@ -162,7 +284,7 @@ MainActor.assumeIsolated {
         while CodexUsageFetcher.count == beforeNormalUsage && ProcessInfo.processInfo.systemUptime < normalUsageDeadline {
             try? await Task.sleep(for: .milliseconds(100))
         }
-        try? await Task.sleep(for: .milliseconds(150))
+        try? await Task.sleep(for: .milliseconds(450))
 
         CodexUsageFetcher.resetAvailableCount = 0
         let beforeNoCredits = CodexUsageFetcher.count

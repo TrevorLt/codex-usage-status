@@ -13,7 +13,7 @@ enum CodexUsageFetcher {
         return try UsageSummary(response: response)
     }
 
-    static func consumeReset(creditID: String?, idempotencyKey: String) async throws -> String {
+    static func consumeReset(creditID: String, idempotencyKey: String) async throws -> String {
         try await Task.detached(priority: .userInitiated) {
             try consumeResetSync(creditID: creditID, idempotencyKey: idempotencyKey)
         }.value
@@ -41,8 +41,9 @@ enum CodexUsageFetcher {
         }
     }
 
-    private static func consumeResetSync(creditID: String?, idempotencyKey: String) throws -> String {
-        guard !idempotencyKey.isEmpty else { throw FetchError.invalidOutput }
+    private static func consumeResetSync(creditID: String, idempotencyKey: String) throws -> String {
+        guard !idempotencyKey.isEmpty,
+              !creditID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw FetchError.invalidOutput }
         let candidates = CodexPathResolver.candidatePaths()
         guard let codexPath = CodexPathResolver.firstExecutablePath(in: candidates) else {
             throw FetchError.codexNotFound(candidates)
@@ -174,9 +175,8 @@ enum CodexUsageFetcher {
         try jsonLine(["method": "account/rateLimits/read", "id": 2])
     }
 
-    private static func resetConsumeRequest(creditID: String?, idempotencyKey: String) throws -> String {
-        var params: [String: String] = ["idempotencyKey": idempotencyKey]
-        if let creditID, !creditID.isEmpty { params["creditId"] = creditID }
+    private static func resetConsumeRequest(creditID: String, idempotencyKey: String) throws -> String {
+        let params = ["idempotencyKey": idempotencyKey, "creditId": creditID]
         return try jsonLine(["method": "account/rateLimitResetCredit/consume", "id": 2, "params": params])
     }
 
