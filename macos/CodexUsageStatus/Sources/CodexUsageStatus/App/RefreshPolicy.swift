@@ -7,6 +7,7 @@ struct UsageRefreshSnapshot: Equatable, Sendable {
     let weeklyWindowDurationMins: Double?
     let fiveHourResetsAt: Date?
     let weeklyResetsAt: Date?
+    let credits: RateLimitCreditsSnapshot?
 
     init(_ usage: UsageSummary) {
         fiveHourUsedPercent = usage.fiveHour.rawUsedPercent
@@ -15,6 +16,7 @@ struct UsageRefreshSnapshot: Equatable, Sendable {
         weeklyWindowDurationMins = usage.weekly.windowDurationMins
         fiveHourResetsAt = usage.fiveHour.resetsAt
         weeklyResetsAt = usage.weekly.resetsAt
+        credits = usage.credits
     }
 
     init(
@@ -25,7 +27,8 @@ struct UsageRefreshSnapshot: Equatable, Sendable {
         fiveHourWindowDurationMins: Double? = nil,
         weeklyWindowDurationMins: Double? = nil,
         fiveHourResetsAt: Date? = nil,
-        weeklyResetsAt: Date? = nil
+        weeklyResetsAt: Date? = nil,
+        credits: RateLimitCreditsSnapshot? = nil
     ) {
         fiveHourUsedPercent = fiveHourRawUsedPercent ?? Double(100 - fiveHourRemaining)
         weeklyUsedPercent = weeklyRawUsedPercent ?? Double(100 - weeklyRemaining)
@@ -33,6 +36,7 @@ struct UsageRefreshSnapshot: Equatable, Sendable {
         self.weeklyWindowDurationMins = weeklyWindowDurationMins
         self.fiveHourResetsAt = fiveHourResetsAt
         self.weeklyResetsAt = weeklyResetsAt
+        self.credits = credits
     }
 }
 
@@ -91,7 +95,8 @@ struct RefreshPolicy: Sendable {
     }
 
     private func hasActivity(from previous: UsageRefreshSnapshot, to current: UsageRefreshSnapshot) -> Bool {
-        rawUsageChanged(previous.fiveHourUsedPercent, current.fiveHourUsedPercent)
+        previous.credits != current.credits
+            || rawUsageChanged(previous.fiveHourUsedPercent, current.fiveHourUsedPercent)
             || rawUsageChanged(previous.weeklyUsedPercent, current.weeklyUsedPercent)
             || windowDidCycle(
                 previousResetsAt: previous.fiveHourResetsAt,

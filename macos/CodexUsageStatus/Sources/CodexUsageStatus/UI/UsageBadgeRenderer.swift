@@ -54,11 +54,15 @@ enum UsageBadgeRenderer {
         animationFrame: UsageBadgeAnimationFrame? = nil
     ) -> UsageBadgeRendering {
         let staleKinds = staleWindows ?? (isStale ? [.fiveHour, .weekly] : [])
+        let creditBalanceText = animationFrame == nil
+            ? creditBalanceBadgeText(for: usage, now: now, hideReadings: hideReadings)
+            : nil
         return render(
             style: style,
             left: BadgeValue(
-                label: "5H",
+                label: creditBalanceText == nil ? "5H" : "C",
                 percent: hideReadings || usage.fiveHour.isExpired(at: now) ? nil : usage.fiveHour.remainingPercent,
+                overrideText: creditBalanceText,
                 displayedPercent: hideReadings || usage.fiveHour.isExpired(at: now) ? nil : animationFrame?.fiveHourPercent,
                 isStale: staleKinds.contains(.fiveHour)
             ),
@@ -73,6 +77,42 @@ enum UsageBadgeRenderer {
             resetOverlayAlpha: animationFrame?.resetHighlightAlpha ?? 0,
             showExpiryReminder: showExpiryReminder
         )
+    }
+
+    static func creditBalanceBadgeText(for usage: UsageSummary, now: Date, hideReadings: Bool = false) -> String? {
+        guard !hideReadings,
+              usage.fiveHour.remainingPercent == 0,
+              !usage.fiveHour.isExpired(at: now),
+              let credits = usage.credits else {
+            return nil
+        }
+
+        if credits.unlimited { return "∞" }
+        guard credits.hasCredits else { return nil }
+        guard let balance = credits.decimalBalance else { return "?" }
+        guard balance > 0 else { return nil }
+
+        var unrounded = balance
+        var rounded = Decimal()
+        NSDecimalRound(&rounded, &unrounded, 0, .plain)
+        guard rounded > 0 else { return "<1" }
+        return compactCreditCount(NSDecimalNumber(decimal: rounded).stringValue)
+    }
+
+    private static func compactCreditCount(_ digits: String) -> String {
+        guard digits.count > 4 else { return digits }
+        let units = ["", "K", "M", "B", "T", "P", "E", "Z", "Y"]
+        let group = (digits.count - 1) / 3
+        guard group < units.count else { return "\(digits.first ?? "0")e\(digits.count - 1)" }
+
+        let leadingCount = digits.count - group * 3
+        let leading = String(digits.prefix(leadingCount))
+        let firstFraction = digits.dropFirst(leadingCount).first ?? "0"
+        let suffix = units[group]
+        if leadingCount == 1, firstFraction != "0" {
+            return "\(leading).\(firstFraction)\(suffix)"
+        }
+        return "\(leading)\(suffix)"
     }
 
     /// Legacy single-image callers receive the native template base, including during warnings.
@@ -617,7 +657,7 @@ enum UsageBadgeRenderer {
     }
 
     private static func readoutFontSize(for value: BadgeValue) -> CGFloat {
-        value.centerText.count >= 3 ? 11.6 : 13.2
+        value.centerText.count >= 4 ? 8.8 : (value.centerText.count >= 3 ? 11.6 : 13.2)
     }
 
     private static func drawRingStaleMarker(near center: NSPoint, foregroundColor: NSColor) {

@@ -54,6 +54,25 @@ final class RefreshPolicyTests: XCTestCase {
         }
     }
 
+    func testCreditBalanceChangeUsesTheSameAdaptiveCadence() {
+        var policy = RefreshPolicy(fixedIntervalOverride: nil)
+        let before = snapshot(
+            fiveHourUsed: 100,
+            weeklyUsed: 50,
+            credits: RateLimitCreditsSnapshot(hasCredits: true, unlimited: false, balance: "218.3286855")
+        )
+        let after = snapshot(
+            fiveHourUsed: 100,
+            weeklyUsed: 50,
+            credits: RateLimitCreditsSnapshot(hasCredits: true, unlimited: false, balance: "217.3286855")
+        )
+
+        XCTAssertEqual(policy.nextInterval(previous: nil, current: before, now: 100), 30)
+        XCTAssertEqual(policy.nextInterval(previous: before, current: after, now: 200), 30)
+        XCTAssertEqual(policy.nextInterval(previous: after, current: after, now: 289), 30)
+        XCTAssertEqual(policy.nextInterval(previous: after, current: after, now: 290), 60)
+    }
+
     func testRemainingDropFromNinetyToEightyNineUsesFastCadence() {
         var policy = RefreshPolicy(fixedIntervalOverride: nil)
         let previous = UsageRefreshSnapshot(fiveHourRemaining: 90, weeklyRemaining: 80)
@@ -113,7 +132,8 @@ final class RefreshPolicyTests: XCTestCase {
         fiveHourUsed: Double,
         weeklyUsed: Double,
         fiveHourResetsAt: Date? = nil,
-        weeklyResetsAt: Date? = nil
+        weeklyResetsAt: Date? = nil,
+        credits: RateLimitCreditsSnapshot? = nil
     ) -> UsageRefreshSnapshot {
         UsageRefreshSnapshot(
             fiveHourRemaining: Int((100 - fiveHourUsed).rounded()),
@@ -123,7 +143,8 @@ final class RefreshPolicyTests: XCTestCase {
             fiveHourWindowDurationMins: 300,
             weeklyWindowDurationMins: 10_080,
             fiveHourResetsAt: fiveHourResetsAt,
-            weeklyResetsAt: weeklyResetsAt
+            weeklyResetsAt: weeklyResetsAt,
+            credits: credits
         )
     }
 }
