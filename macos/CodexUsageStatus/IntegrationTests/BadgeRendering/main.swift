@@ -23,6 +23,64 @@ struct BadgeRenderingAudit {
             (.darkAqua, .white, NSColor(calibratedWhite: 0.18, alpha: 1), "darkAqua"),
         ]
 
+        let purchasedCreditResponse = try JSONDecoder().decode(RateLimitsResponse.self, from: Data("""
+        {"rateLimits":{"limitId":"codex","primary":{"usedPercent":100,"windowDurationMins":300,"resetsAt":\(now.timeIntervalSince1970 + 3_600)},"secondary":{"usedPercent":30,"windowDurationMins":10080,"resetsAt":\(now.timeIntervalSince1970 + 86_400)},"credits":{"hasCredits":true,"unlimited":false,"balance":"218.3286855000"}},"rateLimitResetCredits":{"availableCount":0,"credits":null}}
+        """.utf8))
+        let purchasedCreditUsage = try UsageSummary(response: purchasedCreditResponse)
+        check(UsageBadgeRenderer.creditBalanceBadgeText(for: purchasedCreditUsage, now: now) == "218",
+            "the purchased-credit balance drives the exhausted 5h badge even when reset-credit count is zero")
+
+        let creditsForEmptyWindow = try makeUsage(primaryRemaining: 0, weeklyRemaining: 88, now: now, purchasedCreditBalance: "1234")
+        check(UsageBadgeRenderer.creditBalanceBadgeText(for: creditsForEmptyWindow, now: now) == "1234",
+            "an exhausted 5h window shows the exact available credit count up to four digits")
+        let manyCredits = try makeUsage(primaryRemaining: 0, weeklyRemaining: 88, now: now, purchasedCreditBalance: "12345")
+        check(UsageBadgeRenderer.creditBalanceBadgeText(for: manyCredits, now: now) == "12K",
+            "large credit counts use a compact badge value")
+        let extremelyManyCredits = try makeUsage(primaryRemaining: 0, weeklyRemaining: 88, now: now, purchasedCreditBalance: "9223372036854775807")
+        check(UsageBadgeRenderer.creditBalanceBadgeText(for: extremelyManyCredits, now: now) == "9.2E",
+            "very large credit counts remain bounded to the badge width")
+        let noCredits = try makeUsage(primaryRemaining: 0, weeklyRemaining: 88, now: now)
+        check(UsageBadgeRenderer.creditBalanceBadgeText(for: noCredits, now: now) == nil,
+            "users without credits keep the original zero reading")
+        let zeroCreditBalance = try makeUsage(primaryRemaining: 0, weeklyRemaining: 88, now: now, purchasedCreditBalance: "0")
+        check(UsageBadgeRenderer.creditBalanceBadgeText(for: zeroCreditBalance, now: now) == nil,
+            "an explicit zero purchased-credit balance keeps the original zero reading")
+        let resetCreditOnly = try makeUsage(primaryRemaining: 0, weeklyRemaining: 88, now: now, resetCreditCount: 3)
+        check(UsageBadgeRenderer.creditBalanceBadgeText(for: resetCreditOnly, now: now) == nil,
+            "earned reset credits are not confused with a purchased usage-credit balance")
+        let fractionalCredit = try makeUsage(primaryRemaining: 0, weeklyRemaining: 88, now: now, purchasedCreditBalance: "0.3")
+        check(UsageBadgeRenderer.creditBalanceBadgeText(for: fractionalCredit, now: now) == "<1",
+            "a positive fractional balance is not displayed as zero")
+        let remainingQuotaWithCredits = try makeUsage(primaryRemaining: 1, weeklyRemaining: 88, now: now, purchasedCreditBalance: "3")
+        check(UsageBadgeRenderer.creditBalanceBadgeText(for: remainingQuotaWithCredits, now: now) == nil,
+            "available credits do not replace a nonzero 5h balance")
+        let expiredCredits = try makeUsage(primaryRemaining: 0, weeklyRemaining: 88, now: now, primaryExpiry: -1, purchasedCreditBalance: "3")
+        check(UsageBadgeRenderer.creditBalanceBadgeText(for: expiredCredits, now: now) == nil,
+            "expired 5h readings do not show reset credits as if they could apply")
+        check(UsageBadgeRenderer.creditBalanceBadgeText(for: creditsForEmptyWindow, now: now, hideReadings: true) == nil,
+            "hidden stale readings do not expose an old credit count")
+        for style in BadgeStyle.allCases {
+            let appearance = try unwrap(NSAppearance(named: .darkAqua), "missing dark appearance")
+            let withCredits = try renderButton(
+                UsageBadgeRenderer.rendering(for: creditsForEmptyWindow, style: style, appearance: appearance, now: now),
+                appearance: appearance,
+                tint: .white,
+                background: NSColor(calibratedWhite: 0.18, alpha: 1),
+                style: style
+            )
+            let withoutCredits = try renderButton(
+                UsageBadgeRenderer.rendering(for: noCredits, style: style, appearance: appearance, now: now),
+                appearance: appearance,
+                tint: .white,
+                background: NSColor(calibratedWhite: 0.18, alpha: 1),
+                style: style
+            )
+            check(countDifferentPixels(in: withCredits.bitmap, and: withoutCredits.bitmap, xRange: 0..<44, yRange: 0..<24) > 0,
+                "\(style) replaces the zero badge with a credit count")
+            check(countDifferentPixels(in: withCredits.bitmap, and: withoutCredits.bitmap, xRange: 48..<90, yRange: 0..<24) == 0,
+                "\(style) leaves the weekly badge unchanged")
+        }
+
         // The stale marker is separate from each full-size reading. Compare rasterized
         // number and marker regions so a '~' prefix cannot shrink the digits.
         let staleTestUsage = try makeUsage(primaryRemaining: 19, weeklyRemaining: 88, now: now)
@@ -467,7 +525,9 @@ struct BadgeRenderingAudit {
         weeklyRemaining: Int,
         now: Date,
         primaryExpiry: TimeInterval = 3_600,
-        weeklyExpiry: TimeInterval = 86_400
+        weeklyExpiry: TimeInterval = 86_400,
+        resetCreditCount: Int? = nil,
+        purchasedCreditBalance: String? = nil
     ) throws -> UsageSummary {
         try UsageSummary(response: RateLimitsResponse(
             rateLimits: RateLimitSnapshot(
@@ -482,9 +542,11 @@ struct BadgeRenderingAudit {
                     windowDurationMins: 10_080,
                     resetsAt: now.timeIntervalSince1970 + weeklyExpiry
                 ),
-                planType: "plus"
+                planType: "plus",
+                credits: purchasedCreditBalance.map { RateLimitCreditsSnapshot(hasCredits: true, unlimited: false, balance: $0) }
             ),
             rateLimitsByLimitId: nil,
+            rateLimitResetCredits: resetCreditCount.map { RateLimitResetCredits(availableCount: $0, credits: nil) },
             accountId: "test-account"
         ))
     }

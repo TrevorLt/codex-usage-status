@@ -334,6 +334,54 @@ struct RateLimitSnapshot: Decodable, Sendable {
     let primary: RateLimitWindow?
     let secondary: RateLimitWindow?
     let planType: String?
+    let credits: RateLimitCreditsSnapshot?
+
+    init(
+        limitId: String?,
+        primary: RateLimitWindow?,
+        secondary: RateLimitWindow?,
+        planType: String?,
+        credits: RateLimitCreditsSnapshot? = nil
+    ) {
+        self.limitId = limitId
+        self.primary = primary
+        self.secondary = secondary
+        self.planType = planType
+        self.credits = credits
+    }
+}
+
+struct RateLimitCreditsSnapshot: Decodable, Equatable, Sendable {
+    let hasCredits: Bool
+    let unlimited: Bool
+    let balance: String?
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.hasCredits == rhs.hasCredits
+            && lhs.unlimited == rhs.unlimited
+            && lhs.decimalBalance == rhs.decimalBalance
+    }
+
+    var decimalBalance: Decimal? {
+        guard hasCredits,
+              let balance,
+              let value = Decimal(string: balance, locale: Locale(identifier: "en_US_POSIX")),
+              value >= 0 else {
+            return nil
+        }
+        return value
+    }
+
+    var availabilityDescription: String? {
+        if unlimited { return "Unlimited credits available" }
+        guard hasCredits else { return nil }
+        guard var balance = decimalBalance else { return "Credits available" }
+        guard balance > 0 else { return nil }
+        var rounded = Decimal()
+        NSDecimalRound(&rounded, &balance, 3, .plain)
+        let formattedBalance = rounded > 0 ? NSDecimalNumber(decimal: rounded).stringValue : "<0.001"
+        return "\(formattedBalance) credits available"
+    }
 }
 
 struct RateLimitWindow: Decodable, Sendable {
@@ -346,6 +394,7 @@ struct UsageSummary: Sendable {
     let limitId: String?
     let planType: String?
     let accountID: String?
+    let credits: RateLimitCreditsSnapshot?
     let resetCredits: RateLimitResetCredits?
     let fiveHour: UsageWindow
     let weekly: UsageWindow
@@ -369,6 +418,7 @@ struct UsageSummary: Sendable {
         self.limitId = snapshot.limitId
         self.planType = snapshot.planType
         self.accountID = response.accountId
+        self.credits = snapshot.credits
         self.resetCredits = response.rateLimitResetCredits
         self.fiveHour = fiveHour
         self.weekly = weekly
@@ -422,6 +472,10 @@ struct UsageSummary: Sendable {
             hoverLine(label: "5h", value: fiveHourText),
             hoverLine(label: "7-day", value: weeklyText),
         ]
+        if fiveHour.remainingPercent == 0, !fiveHour.isExpired(at: now),
+           let creditDescription = credits?.availabilityDescription {
+            lines.append(creditDescription)
+        }
         if showingLastKnownReadings {
             lines.append("Showing last known readings")
         }

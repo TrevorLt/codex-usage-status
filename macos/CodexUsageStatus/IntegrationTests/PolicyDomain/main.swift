@@ -36,7 +36,8 @@ private func snapshot(
     fiveHourDuration: Double? = 300,
     weeklyDuration: Double? = 10_080,
     fiveHourReset: Date? = nil,
-    weeklyReset: Date? = nil
+    weeklyReset: Date? = nil,
+    credits: RateLimitCreditsSnapshot? = nil
 ) -> UsageRefreshSnapshot {
     UsageRefreshSnapshot(
         fiveHourRemaining: Int((100 - fiveHourUsed).rounded()),
@@ -46,7 +47,8 @@ private func snapshot(
         fiveHourWindowDurationMins: fiveHourDuration,
         weeklyWindowDurationMins: weeklyDuration,
         fiveHourResetsAt: fiveHourReset,
-        weeklyResetsAt: weeklyReset
+        weeklyResetsAt: weeklyReset,
+        credits: credits
     )
 }
 
@@ -132,6 +134,31 @@ expect(policyInterval(&cadencePolicy, previous: stable, current: stable, now: 90
 expect(policyInterval(&cadencePolicy, previous: stable, current: stable, now: 299) == 60, "cadence changed before 300 seconds")
 expect(policyInterval(&cadencePolicy, previous: stable, current: stable, now: 300) == 120, "cadence should become 120 seconds at 300 seconds")
 expect(policyInterval(&cadencePolicy, previous: stable, current: stable, now: .nan) == 30, "non-finite clock should fall back to 30 seconds")
+
+// A credit balance change is activity and restarts the same adaptive cadence.
+let creditBalanceBefore = snapshot(
+    fiveHourUsed: 100,
+    weeklyUsed: 50,
+    credits: RateLimitCreditsSnapshot(hasCredits: true, unlimited: false, balance: "218.3286855")
+)
+let creditBalanceAfter = snapshot(
+    fiveHourUsed: 100,
+    weeklyUsed: 50,
+    credits: RateLimitCreditsSnapshot(hasCredits: true, unlimited: false, balance: "217.3286855")
+)
+var creditChangePolicy = RefreshPolicy(fixedIntervalOverride: nil)
+expect(policyInterval(&creditChangePolicy, previous: nil, current: creditBalanceBefore, now: 0) == 30, "credit cadence should start at 30 seconds")
+expect(policyInterval(&creditChangePolicy, previous: creditBalanceBefore, current: creditBalanceAfter, now: 90) == 30, "credit balance change should restart the fast cadence")
+expect(policyInterval(&creditChangePolicy, previous: creditBalanceAfter, current: creditBalanceAfter, now: 179) == 30, "credit cadence should stay fast until 90 stable seconds")
+expect(policyInterval(&creditChangePolicy, previous: creditBalanceAfter, current: creditBalanceAfter, now: 180) == 60, "stable credit balance should use the 60-second stage")
+let sameBalanceDifferentFormat = snapshot(
+    fiveHourUsed: 100,
+    weeklyUsed: 50,
+    credits: RateLimitCreditsSnapshot(hasCredits: true, unlimited: false, balance: "217.3286855000")
+)
+var creditFormattingPolicy = RefreshPolicy(fixedIntervalOverride: nil)
+expect(policyInterval(&creditFormattingPolicy, previous: nil, current: creditBalanceAfter, now: 0) == 30, "credit formatting test should start at 30 seconds")
+expect(policyInterval(&creditFormattingPolicy, previous: creditBalanceAfter, current: sameBalanceDifferentFormat, now: 90) == 60, "numeric formatting alone should not restart the cadence")
 
 // A cycle at 80% of the window duration resets the activity baseline.
 let oldFiveHourReset = Date(timeIntervalSince1970: 20_000)

@@ -46,6 +46,7 @@ This repository is an independent continuation based on [tollenceld/codex-usage-
 - Turns only the low-usage ring or readout bar red below 20%; the percentage text remains readable.
 - Marks last-known readings with a neutral `~` directly beside each cached percentage.
 - Refreshes adaptively while keeping a hard 30-second minimum between automatic requests.
+- When the 5-hour quota is exhausted, shows a positive purchased-credit balance in the badge (separate from earned resets); it updates with the existing adaptive usage poll, and hover rounds the balance to at most three decimal places.
 - Recovers after sleep, display wake, and network recovery without duplicating requests.
 - Provides a checkable Launch at Login menu item and a live `Next refresh` countdown in About.
 - Shows a compact badge reminder when an earned reset expires within 72 hours; the menu can jump to the earliest known expiry, confirm its use, or dismiss that reminder batch.

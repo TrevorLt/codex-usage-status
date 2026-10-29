@@ -195,6 +195,34 @@ struct ResetExpiryAudit {
         check(tomorrowTooltip == "5h · Tomorrow 01:00 · in 1h 10m\n7-day · 10/30 13:00",
             "hover uses local 24-hour time, Tomorrow, and a concise relative duration; got \(tomorrowTooltip.debugDescription)")
 
+        let exhaustedWithCredits = try makeUsage(
+            fiveHourReset: chicagoNow.addingTimeInterval(3_600),
+            weeklyReset: chicagoNow.addingTimeInterval(86_400),
+            fiveHourUsedPercent: 100,
+            availableCreditBalance: "1234.56789"
+        )
+        check(exhaustedWithCredits.hoverTooltip(now: chicagoNow, locale: Locale(identifier: "en_US"), timeZone: chicagoTimeZone)
+            == "5h · Tomorrow 00:50 · in 1h\n7-day · 10/30 23:50\n1234.568 credits available",
+            "hover rounds the purchased-credit balance to three decimal places")
+        let tinyCreditBalance = try makeUsage(
+            fiveHourReset: chicagoNow.addingTimeInterval(3_600),
+            weeklyReset: chicagoNow.addingTimeInterval(86_400),
+            fiveHourUsedPercent: 100,
+            availableCreditBalance: "0.0004"
+        )
+        check(tinyCreditBalance.hoverTooltip(now: chicagoNow, locale: Locale(identifier: "en_US"), timeZone: chicagoTimeZone)
+            .hasSuffix("<0.001 credits available"),
+            "a positive balance below the display precision is not rounded down to zero")
+        let emptyCreditBalance = try makeUsage(
+            fiveHourReset: chicagoNow.addingTimeInterval(3_600),
+            weeklyReset: chicagoNow.addingTimeInterval(86_400),
+            fiveHourUsedPercent: 100,
+            availableCreditBalance: "0"
+        )
+        check(emptyCreditBalance.hoverTooltip(now: chicagoNow, locale: Locale(identifier: "en_US"), timeZone: chicagoTimeZone)
+            == "5h · Tomorrow 00:50 · in 1h\n7-day · 10/30 23:50",
+            "an explicit zero balance does not imply credits are available")
+
         let farther = try makeUsage(
             fiveHourReset: chicagoNow.addingTimeInterval(49 * 3_600),
             weeklyReset: nil
@@ -212,7 +240,10 @@ struct ResetExpiryAudit {
             "stale hover adds only the brief cached-data status line")
         let expiredHover = try makeUsage(
             fiveHourReset: chicagoNow.addingTimeInterval(-1),
-            weeklyReset: chicagoNow.addingTimeInterval(-1)
+            weeklyReset: chicagoNow.addingTimeInterval(-1),
+            fiveHourUsedPercent: 100,
+            availableCredits: 3,
+            availableCreditBalance: "100"
         )
         check(expiredHover.hoverTooltip(now: chicagoNow, locale: Locale(identifier: "en_US"), timeZone: chicagoTimeZone)
             == "5h · expired\n7-day · expired",
@@ -274,15 +305,23 @@ struct ResetExpiryAudit {
         )
     }
 
-    private static func makeUsage(fiveHourReset: Date?, weeklyReset: Date?) throws -> UsageSummary {
+    private static func makeUsage(
+        fiveHourReset: Date?,
+        weeklyReset: Date?,
+        fiveHourUsedPercent: Double = 35,
+        availableCredits: Int? = nil,
+        availableCreditBalance: String? = nil
+    ) throws -> UsageSummary {
         try UsageSummary(response: RateLimitsResponse(
             rateLimits: RateLimitSnapshot(
                 limitId: "codex",
-                primary: RateLimitWindow(usedPercent: 35, windowDurationMins: 300, resetsAt: fiveHourReset?.timeIntervalSince1970),
+                primary: RateLimitWindow(usedPercent: fiveHourUsedPercent, windowDurationMins: 300, resetsAt: fiveHourReset?.timeIntervalSince1970),
                 secondary: RateLimitWindow(usedPercent: 12, windowDurationMins: 10_080, resetsAt: weeklyReset?.timeIntervalSince1970),
-                planType: "plus"
+                planType: "plus",
+                credits: availableCreditBalance.map { RateLimitCreditsSnapshot(hasCredits: true, unlimited: false, balance: $0) }
             ),
             rateLimitsByLimitId: nil,
+            rateLimitResetCredits: availableCredits.map { RateLimitResetCredits(availableCount: $0, credits: nil) },
             accountId: "tooltip-test-account"
         ))
     }
