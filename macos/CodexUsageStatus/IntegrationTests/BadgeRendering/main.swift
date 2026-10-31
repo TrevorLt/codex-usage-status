@@ -33,6 +33,12 @@ struct BadgeRenderingAudit {
         let creditsForEmptyWindow = try makeUsage(primaryRemaining: 0, weeklyRemaining: 88, now: now, purchasedCreditBalance: "1234")
         check(UsageBadgeRenderer.creditBalanceBadgeText(for: creditsForEmptyWindow, now: now) == "1234",
             "an exhausted 5h window shows the exact available credit count up to four digits")
+        let almostExhausted = try makeUsage(primaryRemaining: 0, weeklyRemaining: 88, now: now, purchasedCreditBalance: "1234", primaryUsedPercent: 99.6)
+        check(UsageBadgeRenderer.creditBalanceBadgeText(for: almostExhausted, now: now) == nil,
+            "rounding a nearly exhausted window to zero does not show purchased credits early")
+        let malformedCreditBalance = try makeUsage(primaryRemaining: 0, weeklyRemaining: 88, now: now, purchasedCreditBalance: "12abc")
+        check(UsageBadgeRenderer.creditBalanceBadgeText(for: malformedCreditBalance, now: now) == "?",
+            "a malformed purchased balance is not partially parsed as a valid count")
         let manyCredits = try makeUsage(primaryRemaining: 0, weeklyRemaining: 88, now: now, purchasedCreditBalance: "12345")
         check(UsageBadgeRenderer.creditBalanceBadgeText(for: manyCredits, now: now) == "12K",
             "large credit counts use a compact badge value")
@@ -527,13 +533,14 @@ struct BadgeRenderingAudit {
         primaryExpiry: TimeInterval = 3_600,
         weeklyExpiry: TimeInterval = 86_400,
         resetCreditCount: Int? = nil,
-        purchasedCreditBalance: String? = nil
+        purchasedCreditBalance: String? = nil,
+        primaryUsedPercent: Double? = nil
     ) throws -> UsageSummary {
         try UsageSummary(response: RateLimitsResponse(
             rateLimits: RateLimitSnapshot(
                 limitId: "codex",
                 primary: RateLimitWindow(
-                    usedPercent: Double(100 - primaryRemaining),
+                    usedPercent: primaryUsedPercent ?? Double(100 - primaryRemaining),
                     windowDurationMins: 300,
                     resetsAt: now.timeIntervalSince1970 + primaryExpiry
                 ),

@@ -12,7 +12,7 @@ BUILD_ARCH=x86_64 npm run build:macos
 npm run package:macos:all
 ```
 
-The native suite must emit `NATIVE TEST SUITE PASS` after every required harness has emitted its own PASS marker, including the login-item profile harness. A GUI process exiting zero before its assertions execute is not a pass. Run from a logged-in macOS graphical session; missing WindowServer access is a failure requiring investigation. The optional `npm run test:swiftpm` also exercises XCTest when it is included in the selected toolchain. The logo geometry verifier currently requires a developer-local `sharp` path and is not a portable CI prerequisite.
+The native suite must emit `NATIVE TEST SUITE PASS` after every required harness has emitted its own PASS marker, including the login-item profile harness. A GUI process exiting zero before its assertions execute is not a pass. Run from a logged-in macOS graphical session; missing WindowServer access is a failure requiring investigation. `npm run test:swiftpm` is required in CI and the release workflow. The logo geometry verifier currently requires a developer-local `sharp` path and is not a portable CI prerequisite.
 
 Confirm the generated app architecture:
 
@@ -41,7 +41,10 @@ Run probes only with the hardware-native build. On Apple silicon, validate Intel
 - Confirm no code reads browser cookies, browser storage, screenshots, OCR output, or account tokens.
 - Confirm refresh intervals remain conservative.
 - Confirm the 1B-M app icon is present in `Contents/Resources` and declared in `Info.plist`.
-- Confirm the app only calls `account/rateLimits/read` through the local Codex app-server.
+- Confirm usage reads use `account/rateLimits/read` through the local Codex app-server.
+- Confirm reset consumption uses `account/rateLimitResetCredit/consume` only after explicit confirmation, for a specific credit ID verified against the active account.
+- Confirm the candidate release tag points to the tested commit and all four ZIP/DMG assets report version `0.1.4` and the matching architecture.
+- Verify every uploaded artifact against `SHA256SUMS.txt` and confirm the documented signing and notarization status matches the artifacts.
 
 ## Public release quality
 

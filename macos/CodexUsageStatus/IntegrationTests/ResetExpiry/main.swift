@@ -222,6 +222,24 @@ struct ResetExpiryAudit {
         check(emptyCreditBalance.hoverTooltip(now: chicagoNow, locale: Locale(identifier: "en_US"), timeZone: chicagoTimeZone)
             == "5h · Tomorrow 00:50 · in 1h\n7-day · 10/30 23:50",
             "an explicit zero balance does not imply credits are available")
+        let almostExhaustedHover = try makeUsage(
+            fiveHourReset: chicagoNow.addingTimeInterval(3_600),
+            weeklyReset: chicagoNow.addingTimeInterval(86_400),
+            fiveHourUsedPercent: 99.6,
+            availableCreditBalance: "1234"
+        )
+        check(!almostExhaustedHover.hoverTooltip(now: chicagoNow, locale: Locale(identifier: "en_US"), timeZone: chicagoTimeZone)
+            .contains("credits available"),
+            "rounded zero usage does not describe credits as available before the quota is fully used")
+        let malformedCreditHover = try makeUsage(
+            fiveHourReset: chicagoNow.addingTimeInterval(3_600),
+            weeklyReset: chicagoNow.addingTimeInterval(86_400),
+            fiveHourUsedPercent: 100,
+            availableCreditBalance: "12abc"
+        )
+        check(malformedCreditHover.hoverTooltip(now: chicagoNow, locale: Locale(identifier: "en_US"), timeZone: chicagoTimeZone)
+            .hasSuffix("Credits available"),
+            "malformed balance text is not partially parsed into a misleading number")
 
         let farther = try makeUsage(
             fiveHourReset: chicagoNow.addingTimeInterval(49 * 3_600),

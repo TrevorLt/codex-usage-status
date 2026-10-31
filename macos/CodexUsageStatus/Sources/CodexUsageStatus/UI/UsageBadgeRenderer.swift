@@ -81,7 +81,7 @@ enum UsageBadgeRenderer {
 
     static func creditBalanceBadgeText(for usage: UsageSummary, now: Date, hideReadings: Bool = false) -> String? {
         guard !hideReadings,
-              usage.fiveHour.remainingPercent == 0,
+              usage.fiveHour.rawUsedPercent == 100,
               !usage.fiveHour.isExpired(at: now),
               let credits = usage.credits else {
             return nil

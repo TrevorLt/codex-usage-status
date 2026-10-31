@@ -365,6 +365,7 @@ struct RateLimitCreditsSnapshot: Decodable, Equatable, Sendable {
     var decimalBalance: Decimal? {
         guard hasCredits,
               let balance,
+              balance.range(of: #"^[0-9]+(?:\.[0-9]+)?$"#, options: .regularExpression) != nil,
               let value = Decimal(string: balance, locale: Locale(identifier: "en_US_POSIX")),
               value >= 0 else {
             return nil
@@ -472,7 +473,7 @@ struct UsageSummary: Sendable {
             hoverLine(label: "5h", value: fiveHourText),
             hoverLine(label: "7-day", value: weeklyText),
         ]
-        if fiveHour.remainingPercent == 0, !fiveHour.isExpired(at: now),
+        if fiveHour.rawUsedPercent == 100, !fiveHour.isExpired(at: now),
            let creditDescription = credits?.availabilityDescription {
             lines.append(creditDescription)
         }

@@ -33,7 +33,7 @@ This repository is an independent continuation based on [tollenceld/codex-usage-
 | Platform | macOS 13 or later |
 | Architectures | Apple Silicon (`arm64`) and Intel (`x86_64`) |
 | Data source | The official local Codex app-server |
-| Protocol | Reads `account/rateLimits/read`; uses a reset only after confirmation |
+| Protocol | Reads `account/rateLimits/read`; redeems a specific reset only after account verification and confirmation |
 | Automatic refresh | Adaptive 30 / 60 / 120 seconds |
 | Failure retry | 300 seconds |
 | Published release | [`v0.1.4`](https://github.com/TrevorLt/codex-usage-status/releases/tag/v0.1.4) |
@@ -46,9 +46,10 @@ This repository is an independent continuation based on [tollenceld/codex-usage-
 - Turns only the low-usage ring or readout bar red below 20%; the percentage text remains readable.
 - Marks last-known readings with a neutral `~` directly beside each cached percentage.
 - Refreshes adaptively while keeping a hard 30-second minimum between automatic requests.
-- When the 5-hour quota is exhausted, shows a positive purchased-credit balance in the badge (separate from earned resets); it updates with the existing adaptive usage poll, and hover rounds the balance to at most three decimal places.
+- When the 5-hour quota is fully exhausted, shows a positive purchased-credit balance in the badge (separate from earned resets); it updates with the existing adaptive usage poll, and hover rounds the balance to at most three decimal places.
 - Recovers after sleep, display wake, and network recovery without duplicating requests.
 - Provides a checkable Launch at Login menu item and a live `Next refresh` countdown in About.
+- Keeps app startup on the native hardware architecture, restores the login task if launch fails, and verifies the exact launched app path.
 - Shows a compact badge reminder when an earned reset expires within 72 hours; the menu can jump to the earliest known expiry, confirm its use, or dismiss that reminder batch.
 - Shows each earned reset's known expiration in About and formats About timestamps consistently in the current local time zone.
 - Smoothly animates quota changes and confirms reset recovery with a brief green progress animation in both display modes.
