@@ -272,29 +272,28 @@ enum UsageBadgeRenderer {
         resetWindows: Set<UsageWindowKind>
     ) -> NSImage {
         let size = style == .doubleRing ? doubleRingImageSize : largeReadoutImageSize
-        let image = NSImage(size: size)
-        image.lockFocus()
-        defer { image.unlockFocus() }
-
-        appearance.performAsCurrentDrawingAppearance {
-            NSColor.clear.setFill()
-            NSRect(origin: .zero, size: size).fill()
-            switch style {
-            case .doubleRing:
-                if resetWindows.contains(.fiveHour) {
-                    drawResetRing(percent: left.progressPercent, center: NSPoint(x: 29, y: 12))
-                }
-                if resetWindows.contains(.weekly) {
-                    drawResetRing(percent: right.progressPercent, center: NSPoint(x: 75, y: 12))
-                }
-            case .largeReadout:
-                if resetWindows.contains(.fiveHour), let percent = left.progressPercent {
-                    drawReadoutFill(percent: percent, lineRect: NSRect(x: 1, y: 2.4, width: 36, height: 1.5), color: .systemGreen, alpha: 1)
-                }
-                if resetWindows.contains(.weekly), let percent = right.progressPercent {
-                    drawReadoutFill(percent: percent, lineRect: NSRect(x: 48, y: 2.4, width: 36, height: 1.5), color: .systemGreen, alpha: 1)
+        let image = NSImage(size: size, flipped: false) { _ in
+            appearance.performAsCurrentDrawingAppearance {
+                NSColor.clear.setFill()
+                NSRect(origin: .zero, size: size).fill()
+                switch style {
+                case .doubleRing:
+                    if resetWindows.contains(.fiveHour) {
+                        drawResetRing(percent: left.progressPercent, center: NSPoint(x: 29, y: 12))
+                    }
+                    if resetWindows.contains(.weekly) {
+                        drawResetRing(percent: right.progressPercent, center: NSPoint(x: 75, y: 12))
+                    }
+                case .largeReadout:
+                    if resetWindows.contains(.fiveHour), let percent = left.progressPercent {
+                        drawReadoutFill(percent: percent, lineRect: NSRect(x: 1, y: 2.4, width: 36, height: 1.5), color: .systemGreen, alpha: 1)
+                    }
+                    if resetWindows.contains(.weekly), let percent = right.progressPercent {
+                        drawReadoutFill(percent: percent, lineRect: NSRect(x: 48, y: 2.4, width: 36, height: 1.5), color: .systemGreen, alpha: 1)
+                    }
                 }
             }
+            return true
         }
 
         image.isTemplate = false
@@ -365,33 +364,32 @@ enum UsageBadgeRenderer {
         isStale: Bool,
         warningOverlay: Bool
     ) -> NSImage {
-        let image = NSImage(size: doubleRingImageSize)
-        image.lockFocus()
-        defer { image.unlockFocus() }
+        let image = NSImage(size: doubleRingImageSize, flipped: false) { _ in
+            appearance.performAsCurrentDrawingAppearance {
+                let rect = NSRect(origin: .zero, size: doubleRingImageSize)
+                NSColor.clear.setFill()
+                rect.fill()
 
-        appearance.performAsCurrentDrawingAppearance {
-            let rect = NSRect(origin: .zero, size: doubleRingImageSize)
-            NSColor.clear.setFill()
-            rect.fill()
-
-            drawLabeledRing(
-                value: left,
-                labelRect: NSRect(x: 1, y: 4.0, width: 11, height: 16),
-                ringCenter: NSPoint(x: 29, y: 12),
-                foregroundColor: foregroundColor,
-                forcedColor: forcedColor,
-                isStale: isStale,
-                warningOverlay: warningOverlay
-            )
-            drawLabeledRing(
-                value: right,
-                labelRect: NSRect(x: 50, y: 4.0, width: 11, height: 16),
-                ringCenter: NSPoint(x: 75, y: 12),
-                foregroundColor: foregroundColor,
-                forcedColor: forcedColor,
-                isStale: isStale,
-                warningOverlay: warningOverlay
-            )
+                drawLabeledRing(
+                    value: left,
+                    labelRect: NSRect(x: 1, y: 4.0, width: 11, height: 16),
+                    ringCenter: NSPoint(x: 29, y: 12),
+                    foregroundColor: foregroundColor,
+                    forcedColor: forcedColor,
+                    isStale: isStale,
+                    warningOverlay: warningOverlay
+                )
+                drawLabeledRing(
+                    value: right,
+                    labelRect: NSRect(x: 50, y: 4.0, width: 11, height: 16),
+                    ringCenter: NSPoint(x: 75, y: 12),
+                    foregroundColor: foregroundColor,
+                    forcedColor: forcedColor,
+                    isStale: isStale,
+                    warningOverlay: warningOverlay
+                )
+            }
+            return true
         }
 
         image.isTemplate = !warningOverlay && forcedColor == nil
@@ -407,35 +405,34 @@ enum UsageBadgeRenderer {
         isStale: Bool,
         warningOverlay: Bool
     ) -> NSImage {
-        let image = NSImage(size: largeReadoutImageSize)
-        image.lockFocus()
-        defer { image.unlockFocus() }
+        let image = NSImage(size: largeReadoutImageSize, flipped: false) { _ in
+            appearance.performAsCurrentDrawingAppearance {
+                let rect = NSRect(origin: .zero, size: largeReadoutImageSize)
+                NSColor.clear.setFill()
+                rect.fill()
 
-        appearance.performAsCurrentDrawingAppearance {
-            let rect = NSRect(origin: .zero, size: largeReadoutImageSize)
-            NSColor.clear.setFill()
-            rect.fill()
-
-            drawReadoutGroup(
-                value: left,
-                labelRect: NSRect(x: 1, y: 4.0, width: 11, height: 16),
-                numberRect: NSRect(x: 15, y: 3.4, width: 25, height: 17),
-                lineRect: NSRect(x: 1, y: 2.4, width: 36, height: 1.5),
-                foregroundColor: foregroundColor,
-                forcedColor: forcedColor,
-                isStale: isStale,
-                warningOverlay: warningOverlay
-            )
-            drawReadoutGroup(
-                value: right,
-                labelRect: NSRect(x: 49, y: 4.0, width: 11, height: 16),
-                numberRect: NSRect(x: 61, y: 3.4, width: 25, height: 17),
-                lineRect: NSRect(x: 48, y: 2.4, width: 36, height: 1.5),
-                foregroundColor: foregroundColor,
-                forcedColor: forcedColor,
-                isStale: isStale,
-                warningOverlay: warningOverlay
-            )
+                drawReadoutGroup(
+                    value: left,
+                    labelRect: NSRect(x: 1, y: 4.0, width: 11, height: 16),
+                    numberRect: NSRect(x: 15, y: 3.4, width: 25, height: 17),
+                    lineRect: NSRect(x: 1, y: 2.4, width: 36, height: 1.5),
+                    foregroundColor: foregroundColor,
+                    forcedColor: forcedColor,
+                    isStale: isStale,
+                    warningOverlay: warningOverlay
+                )
+                drawReadoutGroup(
+                    value: right,
+                    labelRect: NSRect(x: 49, y: 4.0, width: 11, height: 16),
+                    numberRect: NSRect(x: 61, y: 3.4, width: 25, height: 17),
+                    lineRect: NSRect(x: 48, y: 2.4, width: 36, height: 1.5),
+                    foregroundColor: foregroundColor,
+                    forcedColor: forcedColor,
+                    isStale: isStale,
+                    warningOverlay: warningOverlay
+                )
+            }
+            return true
         }
 
         image.isTemplate = !warningOverlay && forcedColor == nil
@@ -548,7 +545,7 @@ enum UsageBadgeRenderer {
 
         if warningOverlay {
             guard isWarning, let percent else { return }
-            drawReadoutFill(percent: percent, lineRect: lineRect, color: .systemRed, alpha: 0.95)
+            drawReadoutFill(percent: percent == 0 ? 100 : percent, lineRect: lineRect, color: .systemRed, alpha: 0.95)
             return
         }
 

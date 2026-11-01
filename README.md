@@ -8,21 +8,25 @@ A small macOS menu-bar companion for seeing Codex 5-hour and weekly usage, with 
 
 | **Double Ring** (default) | **Large Readout** |
 |:---:|:---:|
-| ![Double Ring mode with circular quota indicators](docs/assets/menu-bar-badge-double-ring.png) | ![Large Readout mode with labeled quota bars](docs/assets/menu-bar-badge-large-readout.png) |
+| <img src="docs/assets/menu-bar-badge-double-ring.png" width="480" alt="Double Ring mode with circular quota indicators"> | <img src="docs/assets/menu-bar-badge-large-readout.png" width="480" alt="Large Readout mode with labeled quota bars"> |
 
 Switch between the two modes from the badge's **Display Style** menu.
+
+When the 5-hour quota is exhausted, a positive purchased credit balance replaces the zero in either style. Hovering shows the balance:
+
+<img src="docs/assets/menu-bar-credit-balance.png" width="760" alt="Purchased credit balance in both badge styles, with the hover balance shown below each badge">
 
 The 5-hour and 7-day readings animate smoothly when refreshed. A confirmed reset briefly highlights only the recovered window in green in both display modes.
 
 | **Double Ring reset animation** | **Large Readout reset animation** |
 |:---:|:---:|
-| <img src="docs/assets/badge-reset-double-ring.gif" width="300" alt="Double Ring badge reset recovery animation"> | <img src="docs/assets/badge-reset-large-readout.gif" width="300" alt="Large Readout badge reset recovery animation"> |
+| <img src="docs/assets/badge-reset-double-ring.gif" width="360" alt="Double Ring badge reset recovery animation"> | <img src="docs/assets/badge-reset-large-readout.gif" width="360" alt="Large Readout badge reset recovery animation"> |
 
 Reset animations loop continuously with a 1.5-second pause between cycles.
 
-An amber dot marks an earned reset that expires within 72 hours. It stays on the badge as a quiet reminder; the menu offers a direct path to use the earliest known-expiring reset.
+An amber dot at the badge's upper-right corner marks an earned reset that expires within 72 hours. It stays on the badge as a quiet reminder; the menu offers a direct path to use the earliest known-expiring reset.
 
-![Amber reset-expiry reminder dot in Double Ring and Large Readout modes](docs/assets/reset-expiry-reminder.png)
+<img src="docs/assets/reset-expiry-reminder.png" width="760" alt="Amber reset-expiry reminder dot in Double Ring and Large Readout modes">
 
 This repository is an independent continuation based on [tollenceld/codex-usage-status](https://github.com/tollenceld/codex-usage-status), originally created by [@tollenceld](https://github.com/tollenceld). The original project and its MIT license remain credited; this repository is maintained independently.
 
@@ -188,7 +192,7 @@ env -u BUILD_ARCH npm run build:macos  # restore the hardware-native build befor
 
 `npm run test:badge-animation` checks animation frames without AppKit or real-time waits. `npm run test:reset-flow` exercises reset success, fresh reads, unchanged windows, and failure paths against a fake client; it never calls the account reset endpoint. The native suite also checks rendered reset highlights, stale-number layout, and exact About expiry lines.
 
-To inspect frames manually, run `npm run preview:badge-animations`. The standalone preview window shows both display styles in light and dark appearances. Select a normal refresh, confirmed 5h/7-day reset, unchanged reset result, reset-expiry reminder, or last-known state, then drag the timeline or press Play. It uses synthetic local values and cannot redeem a real reset.
+To inspect frames manually, run `npm run preview:badge-animations`. The standalone preview window shows both display styles in light and dark appearances. Select a normal refresh, confirmed 5h/7-day reset, unchanged reset result, reset-expiry reminder, last-known state, or the static **5H exhausted · purchased credits** state, then drag the timeline or press Play. It uses synthetic local values and cannot redeem a real reset.
 
 For release artifacts, the repository also verifies app identity, architecture, code-signing structure, icon embedding, DMG contents, and SHA-256 checksums. See [the release checklist](docs/release-checklist.md).
 
