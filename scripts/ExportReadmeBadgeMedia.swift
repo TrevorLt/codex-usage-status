@@ -6,9 +6,10 @@ import UniformTypeIdentifiers
 @MainActor
 @main
 private enum ExportReadmeBadgeMedia {
-    private static let canvasSize = NSSize(width: 300, height: 100)
-    private static let menuBarSampleSize = NSSize(width: 213, height: 67)
-    private static let animationPixelScale = 2
+    private static let canvasSize = NSSize(width: 360, height: 120)
+    private static let menuBarSampleSize = NSSize(width: 480, height: 160)
+    private static let menuBarSamplePixelScale = 2
+    private static let animationPixelScale = 3
     private static let framesPerSecond = 24.0
     private static let repeatPause = 1.5
 
@@ -24,6 +25,7 @@ private enum ExportReadmeBadgeMedia {
         let now = Date()
         let usage = try makeUsage(fiveHour: 100, weekly: 100, now: now)
         try writeMenuBarSamples(usage: makeUsage(fiveHour: 53, weekly: 93, now: now), now: now, to: outputDirectory)
+        try writeCreditBalanceImage(now: now, to: outputDirectory)
         let transition = UsageBadgeTransition(
             fromFiveHour: 14,
             fromWeekly: 18,
@@ -55,7 +57,7 @@ private enum ExportReadmeBadgeMedia {
     private static func writeMenuBarSamples(usage: UsageSummary, now: Date, to directory: URL) throws {
         let appearance = NSAppearance(named: .aqua) ?? NSAppearance.currentDrawing()
         for style in BadgeStyle.allCases {
-            let bitmap = try makeBitmap(size: menuBarSampleSize)
+            let bitmap = try makeBitmap(size: menuBarSampleSize, pixelScale: menuBarSamplePixelScale)
             NSGraphicsContext.saveGraphicsState()
             defer { NSGraphicsContext.restoreGraphicsState() }
             guard let context = NSGraphicsContext(bitmapImageRep: bitmap) else {
@@ -66,11 +68,25 @@ private enum ExportReadmeBadgeMedia {
             context.shouldAntialias = true
 
             appearance.performAsCurrentDrawingAppearance {
-                let bounds = NSRect(origin: .zero, size: menuBarSampleSize)
-                NSGradient(colors: [
-                    NSColor(calibratedRed: 1, green: 0.89, blue: 0.29, alpha: 1),
-                    NSColor(calibratedRed: 1, green: 0.82, blue: 0.22, alpha: 1),
-                ])?.draw(in: bounds, angle: 270)
+                NSColor(calibratedRed: 0.95, green: 0.94, blue: 0.97, alpha: 1).setFill()
+                NSRect(origin: .zero, size: menuBarSampleSize).fill()
+                drawCard(
+                    in: NSRect(x: 16, y: 14, width: 448, height: 132),
+                    fill: .white,
+                    border: NSColor(calibratedRed: 0.86, green: 0.84, blue: 0.90, alpha: 1),
+                    radius: 18
+                )
+                drawText("Codex Usage Status", at: NSPoint(x: 32, y: 111), size: 16, weight: .semibold, color: .labelColor)
+                drawText(style.menuTitle.uppercased(), at: NSPoint(x: 350, y: 114), size: 10, weight: .medium,
+                         color: NSColor(calibratedRed: 0.43, green: 0.36, blue: 0.58, alpha: 1))
+
+                let badgeSurface = NSRect(x: 30, y: 38, width: 420, height: 60)
+                drawCard(
+                    in: badgeSurface,
+                    fill: NSColor(calibratedRed: 0.96, green: 0.95, blue: 0.98, alpha: 1),
+                    border: NSColor(calibratedRed: 0.90, green: 0.88, blue: 0.93, alpha: 1),
+                    radius: 14
+                )
 
                 let rendering = UsageBadgeRenderer.rendering(
                     for: usage,
@@ -79,24 +95,99 @@ private enum ExportReadmeBadgeMedia {
                     now: now
                 )
                 rendering.image.draw(
-                    in: NSRect(x: 21, y: 9.5, width: 172, height: 48),
+                    in: NSRect(x: 154, y: 44, width: 172, height: 48),
                     from: .zero,
                     operation: .sourceOver,
                     fraction: 1
                 )
+                drawText("Live quota preview", at: NSPoint(x: 32, y: 20), size: 10, weight: .regular, color: .secondaryLabelColor)
             }
 
-            guard let data = bitmap.representation(using: .png, properties: [:]) else {
-                throw ExportError.pngEncodingFailed
-            }
             let filename = style == .doubleRing ? "double-ring" : "large-readout"
             let destination = directory.appendingPathComponent("menu-bar-badge-\(filename).png")
-            try data.write(to: destination, options: .atomic)
+            try writePNG(bitmap, to: destination)
             print("Wrote \(destination.path)")
         }
     }
 
-    private static func makeUsage(fiveHour: Int, weekly: Int, now: Date) throws -> UsageSummary {
+    private static func writeCreditBalanceImage(now: Date, to directory: URL) throws {
+        let size = NSSize(width: 760, height: 260)
+        let bitmap = try makeBitmap(size: size, pixelScale: 2)
+        let appearance = NSAppearance(named: .aqua) ?? NSAppearance.currentDrawing()
+        let usage = try makeUsage(fiveHour: 0, weekly: 68, now: now, purchasedCreditBalance: "218.3286855")
+        let tooltipLines = usage.hoverTooltip(
+            now: now,
+            locale: Locale(identifier: "en_US"),
+            timeZone: TimeZone.current
+        ).components(separatedBy: "\n")
+
+        NSGraphicsContext.saveGraphicsState()
+        defer { NSGraphicsContext.restoreGraphicsState() }
+        guard let context = NSGraphicsContext(bitmapImageRep: bitmap) else {
+            throw ExportError.bitmapContextUnavailable
+        }
+        NSGraphicsContext.current = context
+        context.imageInterpolation = .high
+        context.shouldAntialias = true
+
+        appearance.performAsCurrentDrawingAppearance {
+            NSColor(calibratedRed: 0.95, green: 0.94, blue: 0.97, alpha: 1).setFill()
+            NSRect(origin: .zero, size: size).fill()
+            drawText("When your 5-hour quota runs out", at: NSPoint(x: 24, y: 226), size: 18, weight: .semibold, color: .labelColor)
+            drawText("A positive purchased balance stays visible in either badge style.",
+                     at: NSPoint(x: 24, y: 207), size: 11, weight: .regular, color: .secondaryLabelColor)
+
+            for (index, style) in BadgeStyle.allCases.enumerated() {
+                let originX = index == 0 ? 18.0 : 386.0
+                drawCard(
+                    in: NSRect(x: originX, y: 16, width: 356, height: 174),
+                    fill: .white,
+                    border: NSColor(calibratedRed: 0.86, green: 0.84, blue: 0.90, alpha: 1),
+                    radius: 16
+                )
+                drawText(style.menuTitle, at: NSPoint(x: originX + 18, y: 170), size: 13, weight: .semibold, color: .labelColor)
+                drawText("5H exhausted · purchased credits", at: NSPoint(x: originX + 18, y: 151), size: 10,
+                         weight: .medium, color: NSColor(calibratedRed: 0.43, green: 0.36, blue: 0.58, alpha: 1))
+
+                let badgeSurface = NSRect(x: originX + 18, y: 91, width: 320, height: 48)
+                drawCard(
+                    in: badgeSurface,
+                    fill: NSColor(calibratedRed: 0.96, green: 0.95, blue: 0.98, alpha: 1),
+                    border: NSColor(calibratedRed: 0.90, green: 0.88, blue: 0.93, alpha: 1),
+                    radius: 12
+                )
+                let rendering = UsageBadgeRenderer.rendering(for: usage, style: style, appearance: appearance, now: now)
+                let badgeRect = NSRect(x: originX + 92, y: 91, width: 172, height: 48)
+                rendering.image.draw(in: badgeRect, from: .zero, operation: .sourceOver, fraction: 1)
+                rendering.warningOverlay?.draw(in: badgeRect, from: .zero, operation: .sourceOver, fraction: 1)
+                drawText("Hover for balance", at: NSPoint(x: originX + 92, y: 74), size: 9,
+                         weight: .medium, color: .secondaryLabelColor)
+
+                let tooltipRect = NSRect(x: originX + 18, y: 27, width: 320, height: 42)
+                drawCard(
+                    in: tooltipRect,
+                    fill: NSColor(calibratedRed: 0.97, green: 0.96, blue: 0.98, alpha: 1),
+                    border: .clear,
+                    radius: 9
+                )
+                for (lineIndex, line) in tooltipLines.enumerated() {
+                    drawText(line, at: NSPoint(x: tooltipRect.minX + 9, y: tooltipRect.maxY - 12 - CGFloat(lineIndex * 11)),
+                             size: 8, weight: .regular, color: .secondaryLabelColor)
+                }
+            }
+        }
+
+        let destination = directory.appendingPathComponent("menu-bar-credit-balance.png")
+        try writePNG(bitmap, to: destination)
+        print("Wrote \(destination.path)")
+    }
+
+    private static func makeUsage(
+        fiveHour: Int,
+        weekly: Int,
+        now: Date,
+        purchasedCreditBalance: String? = nil
+    ) throws -> UsageSummary {
         try UsageSummary(response: RateLimitsResponse(
             rateLimits: RateLimitSnapshot(
                 limitId: "codex",
@@ -110,7 +201,10 @@ private enum ExportReadmeBadgeMedia {
                     windowDurationMins: 10_080,
                     resetsAt: now.addingTimeInterval(7 * 86_400).timeIntervalSince1970
                 ),
-                planType: "readme-preview"
+                planType: "readme-preview",
+                credits: purchasedCreditBalance.map {
+                    RateLimitCreditsSnapshot(hasCredits: true, unlimited: false, balance: $0)
+                }
             ),
             rateLimitsByLimitId: nil,
             accountId: "readme-preview"
@@ -165,6 +259,7 @@ private enum ExportReadmeBadgeMedia {
         appearance.performAsCurrentDrawingAppearance {
             drawCardBackground()
             drawTitle("Reset confirmed")
+            drawSubtitle("Green marks only recovered windows", at: NSPoint(x: 24, y: 57))
 
             let rendering = UsageBadgeRenderer.rendering(
                 for: usage,
@@ -186,8 +281,8 @@ private enum ExportReadmeBadgeMedia {
     }
 
     private static func writeReminderImage(usage: UsageSummary, now: Date, to url: URL) throws {
-        let size = NSSize(width: 620, height: 180)
-        let bitmap = try makeBitmap(size: size)
+        let size = NSSize(width: 760, height: 240)
+        let bitmap = try makeBitmap(size: size, pixelScale: 2)
         NSGraphicsContext.saveGraphicsState()
         defer { NSGraphicsContext.restoreGraphicsState() }
         guard let context = NSGraphicsContext(bitmapImageRep: bitmap) else {
@@ -199,31 +294,23 @@ private enum ExportReadmeBadgeMedia {
 
         let appearance = NSAppearance(named: .aqua) ?? NSAppearance.currentDrawing()
         appearance.performAsCurrentDrawingAppearance {
-            let fullRect = NSRect(origin: .zero, size: size)
-            NSColor(calibratedWhite: 0.97, alpha: 1).setFill()
-            NSBezierPath(roundedRect: fullRect, xRadius: 16, yRadius: 16).fill()
-            NSColor(calibratedWhite: 0.84, alpha: 1).setStroke()
-            let border = NSBezierPath(roundedRect: fullRect.insetBy(dx: 0.5, dy: 0.5), xRadius: 16, yRadius: 16)
-            border.lineWidth = 1
-            border.stroke()
-
-            NSAttributedString(
-                string: "Reset expires soon",
-                attributes: [
-                    .font: NSFont.systemFont(ofSize: 16, weight: .semibold),
-                    .foregroundColor: NSColor.labelColor,
-                ]
-            ).draw(at: NSPoint(x: 24, y: 142))
+            NSColor(calibratedRed: 0.95, green: 0.94, blue: 0.97, alpha: 1).setFill()
+            NSRect(origin: .zero, size: size).fill()
+            drawText("Reset expiry reminder", at: NSPoint(x: 24, y: 211), size: 18, weight: .semibold, color: .labelColor)
+            drawText("A quiet mark appears when an earned reset expires within 72 hours.",
+                     at: NSPoint(x: 24, y: 192), size: 11, weight: .regular, color: .secondaryLabelColor)
 
             for (index, style) in BadgeStyle.allCases.enumerated() {
-                let originX = index == 0 ? 24.0 : 324.0
-                NSAttributedString(
-                    string: style.menuTitle,
-                    attributes: [
-                        .font: NSFont.systemFont(ofSize: 12, weight: .medium),
-                        .foregroundColor: NSColor.secondaryLabelColor,
-                    ]
-                ).draw(at: NSPoint(x: originX, y: 112))
+                let originX = index == 0 ? 18.0 : 386.0
+                drawCard(
+                    in: NSRect(x: originX, y: 18, width: 356, height: 162),
+                    fill: .white,
+                    border: NSColor(calibratedRed: 0.86, green: 0.84, blue: 0.90, alpha: 1),
+                    radius: 16
+                )
+                drawText(style.menuTitle, at: NSPoint(x: originX + 18, y: 157), size: 13, weight: .semibold, color: .labelColor)
+                drawText("EXPIRING SOON", at: NSPoint(x: originX + 18, y: 138), size: 9, weight: .medium,
+                         color: NSColor(calibratedRed: 0.68, green: 0.37, blue: 0.10, alpha: 1))
 
                 let rendering = UsageBadgeRenderer.rendering(
                     for: usage,
@@ -231,16 +318,43 @@ private enum ExportReadmeBadgeMedia {
                     appearance: appearance,
                     now: now
                 )
-                let badgeRect = NSRect(x: originX, y: 38, width: 258, height: 72)
+                let badgeRect = NSRect(x: originX + 28, y: 45, width: 258, height: 72)
                 rendering.image.draw(in: badgeRect, from: .zero, operation: .sourceOver, fraction: 1)
                 drawExpiryDot(in: badgeRect)
             }
         }
 
+        try writePNG(bitmap, to: url)
+    }
+
+    private static func drawCard(in rect: NSRect, fill: NSColor, border: NSColor?, radius: CGFloat) {
+        fill.setFill()
+        NSBezierPath(roundedRect: rect, xRadius: radius, yRadius: radius).fill()
+        guard let border else { return }
+        border.setStroke()
+        let outline = NSBezierPath(roundedRect: rect.insetBy(dx: 0.5, dy: 0.5), xRadius: radius, yRadius: radius)
+        outline.lineWidth = 1
+        outline.stroke()
+    }
+
+    private static func drawText(_ text: String, at point: NSPoint, size: CGFloat, weight: NSFont.Weight, color: NSColor) {
+        NSAttributedString(string: text, attributes: [
+            .font: NSFont.systemFont(ofSize: size, weight: weight),
+            .foregroundColor: color,
+        ]).draw(at: point)
+    }
+
+    private static func writePNG(_ bitmap: NSBitmapImageRep, to url: URL) throws {
         guard let data = bitmap.representation(using: .png, properties: [:]) else {
             throw ExportError.pngEncodingFailed
         }
         try data.write(to: url, options: .atomic)
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
+              let image = CGImageSourceCreateImageAtIndex(source, 0, nil),
+              image.width == bitmap.pixelsWide,
+              image.height == bitmap.pixelsHigh else {
+            throw ExportError.pngMetadataVerificationFailed
+        }
     }
 
     private static func makeBitmap(size: NSSize, pixelScale: Int = 1) throws -> NSBitmapImageRep {
@@ -263,27 +377,33 @@ private enum ExportReadmeBadgeMedia {
     }
 
     private static var enlargedBadgeRect: NSRect {
-        NSRect(x: 64, y: 18, width: 172, height: 48)
+        NSRect(x: 168, y: 25, width: 172, height: 48)
     }
 
     private static func drawCardBackground() {
         let fullRect = NSRect(origin: .zero, size: canvasSize)
-        NSColor(calibratedWhite: 0.97, alpha: 1).setFill()
-        NSBezierPath(roundedRect: fullRect, xRadius: 16, yRadius: 16).fill()
-        NSColor(calibratedWhite: 0.84, alpha: 1).setStroke()
-        let border = NSBezierPath(roundedRect: fullRect.insetBy(dx: 0.5, dy: 0.5), xRadius: 16, yRadius: 16)
-        border.lineWidth = 1
-        border.stroke()
+        NSColor(calibratedRed: 0.95, green: 0.94, blue: 0.97, alpha: 1).setFill()
+        fullRect.fill()
+        drawCard(
+            in: NSRect(x: 12, y: 12, width: 336, height: 96),
+            fill: .white,
+            border: NSColor(calibratedRed: 0.86, green: 0.84, blue: 0.90, alpha: 1),
+            radius: 16
+        )
+        drawCard(
+            in: NSRect(x: 160, y: 21, width: 190, height: 56),
+            fill: NSColor(calibratedRed: 0.96, green: 0.95, blue: 0.98, alpha: 1),
+            border: nil,
+            radius: 12
+        )
     }
 
     private static func drawTitle(_ text: String) {
-        NSAttributedString(
-            string: text,
-            attributes: [
-                .font: NSFont.systemFont(ofSize: 12, weight: .semibold),
-                .foregroundColor: NSColor.labelColor,
-            ]
-        ).draw(at: NSPoint(x: 18, y: 78))
+        drawText(text, at: NSPoint(x: 24, y: 78), size: 14, weight: .semibold, color: .labelColor)
+    }
+
+    private static func drawSubtitle(_ text: String, at point: NSPoint) {
+        drawText(text, at: point, size: 9, weight: .regular, color: .secondaryLabelColor)
     }
 
     private static func drawExpiryDot(in badgeRect: NSRect) {
@@ -367,5 +487,6 @@ private enum ExportReadmeBadgeMedia {
         case gifEncodingFailed
         case gifMetadataVerificationFailed
         case gifPauseVerificationFailed
+        case pngMetadataVerificationFailed
     }
 }

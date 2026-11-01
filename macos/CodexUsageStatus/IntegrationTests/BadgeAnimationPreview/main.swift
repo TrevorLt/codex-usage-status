@@ -56,7 +56,7 @@ private final class BadgeAnimationPreviewController: NSObject, NSApplicationDele
         title.frame = NSRect(x: 24, y: 430, width: 500, height: 24)
         content.addSubview(title)
 
-        let instructions = NSTextField(labelWithString: "No account or reset endpoint is used. Choose a scenario, scrub to any frame, or play it.")
+        let instructions = NSTextField(labelWithString: "No account or reset endpoint is used. Animated scenarios can be scrubbed or played.")
         instructions.font = .systemFont(ofSize: 11)
         instructions.textColor = .secondaryLabelColor
         instructions.frame = NSRect(x: 24, y: 410, width: 712, height: 16)
@@ -151,13 +151,21 @@ private final class BadgeAnimationPreviewController: NSObject, NSApplicationDele
     private func renderFrame() {
         guard !cards.isEmpty else { return }
         let scenario = selectedScenario
+        timeline.isEnabled = !scenario.showsPurchasedCredits
+        playButton.isEnabled = !scenario.showsPurchasedCredits
         let progress = min(1, max(0, timeline.doubleValue / 100))
         let elapsed = scenario.transition.duration * progress
         let frame = scenario.transition.frame(at: elapsed)
-        timeLabel.stringValue = String(format: "%3.0f%% · %.2fs", timeline.doubleValue, elapsed)
+        timeLabel.stringValue = scenario.showsPurchasedCredits
+            ? "static"
+            : String(format: "%3.0f%% · %.2fs", timeline.doubleValue, elapsed)
         descriptionLabel.stringValue = scenario.description
 
-        let usage = makeUsage(fiveHour: scenario.toFiveHour, weekly: scenario.toWeekly)
+        let usage = makeUsage(
+            fiveHour: scenario.toFiveHour,
+            weekly: scenario.toWeekly,
+            purchasedCreditBalance: scenario.showsPurchasedCredits ? "218.3286855" : nil
+        )
         let staleWindows = scenario.isStale ? Set([UsageWindowKind.fiveHour, .weekly]) : []
         for card in cards {
             let rendering = UsageBadgeRenderer.rendering(
@@ -167,13 +175,13 @@ private final class BadgeAnimationPreviewController: NSObject, NSApplicationDele
                 staleWindows: staleWindows,
                 now: now,
                 showExpiryReminder: scenario.showExpiryReminder,
-                animationFrame: scenario.isStale ? nil : frame
+                animationFrame: scenario.isStale || scenario.showsPurchasedCredits ? nil : frame
             )
             card.display(rendering)
         }
     }
 
-    private func makeUsage(fiveHour: Int, weekly: Int) -> UsageSummary {
+    private func makeUsage(fiveHour: Int, weekly: Int, purchasedCreditBalance: String? = nil) -> UsageSummary {
         // Values are deterministic and local to the preview; no fetch or redemption is made.
         try! UsageSummary(response: RateLimitsResponse(
             rateLimits: RateLimitSnapshot(
@@ -182,7 +190,10 @@ private final class BadgeAnimationPreviewController: NSObject, NSApplicationDele
                                          resetsAt: now.addingTimeInterval(3_600).timeIntervalSince1970),
                 secondary: RateLimitWindow(usedPercent: Double(100 - weekly), windowDurationMins: 10_080,
                                           resetsAt: now.addingTimeInterval(7 * 86_400).timeIntervalSince1970),
-                planType: "preview"
+                planType: "preview",
+                credits: purchasedCreditBalance.map {
+                    RateLimitCreditsSnapshot(hasCredits: true, unlimited: false, balance: $0)
+                }
             ),
             rateLimitsByLimitId: nil,
             accountId: "preview-only"
@@ -199,6 +210,7 @@ private enum PreviewScenario: CaseIterable {
     case noConfirmedResetChange
     case expiryReminder
     case lastKnown
+    case purchasedCredits
 
     static let allCases: [PreviewScenario] = [
         .refreshDecrease,
@@ -209,6 +221,7 @@ private enum PreviewScenario: CaseIterable {
         .noConfirmedResetChange,
         .expiryReminder,
         .lastKnown,
+        .purchasedCredits,
     ]
 
     var title: String {
@@ -221,6 +234,7 @@ private enum PreviewScenario: CaseIterable {
         case .noConfirmedResetChange: "Reset request · no changed window"
         case .expiryReminder: "Reset expiring soon"
         case .lastKnown: "Last-known readings"
+        case .purchasedCredits: "5H exhausted · purchased credits"
         }
     }
 
@@ -234,11 +248,13 @@ private enum PreviewScenario: CaseIterable {
         case .noConfirmedResetChange: "The request alone does not animate green without changed fresh readings."
         case .expiryReminder: "The amber dot signals an earned reset that expires within 72 hours."
         case .lastKnown: "A small independent marker preserves the normal reading size."
+        case .purchasedCredits: "Static state: at 100% usage, the badge shows purchased credits; hover shows the precise balance."
         }
     }
 
     var isStale: Bool { self == .lastKnown }
     var showExpiryReminder: Bool { self == .expiryReminder }
+    var showsPurchasedCredits: Bool { self == .purchasedCredits }
 
     var fromFiveHour: Double {
         switch self {
@@ -250,6 +266,7 @@ private enum PreviewScenario: CaseIterable {
         case .noConfirmedResetChange: 46
         case .expiryReminder: 62
         case .lastKnown: 62
+        case .purchasedCredits: 0
         }
     }
 
@@ -263,6 +280,7 @@ private enum PreviewScenario: CaseIterable {
         case .noConfirmedResetChange: 73
         case .expiryReminder: 81
         case .lastKnown: 88
+        case .purchasedCredits: 68
         }
     }
 
@@ -276,6 +294,7 @@ private enum PreviewScenario: CaseIterable {
         case .noConfirmedResetChange: 46
         case .expiryReminder: 62
         case .lastKnown: 62
+        case .purchasedCredits: 0
         }
     }
 
@@ -289,6 +308,7 @@ private enum PreviewScenario: CaseIterable {
         case .noConfirmedResetChange: 73
         case .expiryReminder: 81
         case .lastKnown: 88
+        case .purchasedCredits: 68
         }
     }
 

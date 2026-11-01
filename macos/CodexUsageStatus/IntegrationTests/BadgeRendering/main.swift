@@ -185,6 +185,11 @@ struct BadgeRenderingAudit {
                     check(rendering.image.isTemplate, "\(style) \(remaining)% base remains a template in \(appearanceLabel)")
                     check((rendering.warningOverlay != nil) == expectedWarning, "\(style) \(remaining)% warning threshold in \(appearanceLabel)")
                     check((redPixels > 0) == expectedWarning, "\(style) \(remaining)% visible red pixels in \(appearanceLabel); got \(redPixels)")
+                    if style == .largeReadout {
+                        let redLineEnd = countRedPixels(in: button.bitmap, xRange: 36..<41)
+                        check((redLineEnd > 0) == (remaining == 0),
+                            "Large Readout \(remaining)% red warning \(remaining == 0 ? "fills" : "stops before") the line end in \(appearanceLabel); got \(redLineEnd) end pixels")
+                    }
                     if expectedWarning, style == .doubleRing {
                         let centerRedPixels = countRedPixels(in: button.bitmap, xRange: 24..<34, yRange: 8..<16)
                         check(centerRedPixels == 0,
@@ -237,6 +242,8 @@ struct BadgeRenderingAudit {
                         "\(style) amber reminder does not expand the status item in \(appearanceLabel)")
                     check(countAmberPixels(in: markedButton.bitmap, xRange: 80..<90, yRange: 17..<24) > 0,
                         "\(style) amber reminder is visible at the fixed top-right in \(appearanceLabel)")
+                    check(countAmberPixels(in: markedButton.bitmap, xRange: 80..<90, yRange: 0..<7) == 0,
+                        "\(style) amber reminder is absent from the bottom-right in \(appearanceLabel)")
                     check(markedButton.hasExpiryReminderDot && !plainButton.hasExpiryReminderDot,
                         "\(style) reminder view appears only in the expiring state in \(appearanceLabel)")
                     check(countDifferentPixels(
