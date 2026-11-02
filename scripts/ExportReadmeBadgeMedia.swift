@@ -6,10 +6,9 @@ import UniformTypeIdentifiers
 @MainActor
 @main
 private enum ExportReadmeBadgeMedia {
-    private static let canvasSize = NSSize(width: 220, height: 72)
-    private static let menuBarSampleSize = NSSize(width: 300, height: 100)
-    private static let menuBarSamplePixelScale = 2
-    private static let animationPixelScale = 3
+    private static let canvasSize = NSSize(width: 300, height: 100)
+    private static let canvasPixelScale = 3
+    private static let badgeDisplaySize = NSSize(width: 172, height: 48)
     private static let framesPerSecond = 24.0
     private static let repeatPause = 1.5
 
@@ -25,7 +24,7 @@ private enum ExportReadmeBadgeMedia {
         let now = Date()
         let usage = try makeUsage(fiveHour: 100, weekly: 100, now: now)
         try writeMenuBarSamples(usage: makeUsage(fiveHour: 53, weekly: 93, now: now), now: now, to: outputDirectory)
-        try writeCreditBalanceImage(now: now, to: outputDirectory)
+        try writeCreditBalanceImages(now: now, to: outputDirectory)
         let transition = UsageBadgeTransition(
             fromFiveHour: 14,
             fromWeekly: 18,
@@ -49,83 +48,18 @@ private enum ExportReadmeBadgeMedia {
             print("Wrote \(destination.path)")
         }
 
-        let reminderURL = outputDirectory.appendingPathComponent("reset-expiry-reminder.png")
-        try writeReminderImage(usage: makeUsage(fiveHour: 62, weekly: 81, now: now), now: now, to: reminderURL)
-        print("Wrote \(reminderURL.path)")
+        try writeExpiryReminderImages(usage: makeUsage(fiveHour: 62, weekly: 81, now: now), now: now, to: outputDirectory)
     }
 
     private static func writeMenuBarSamples(usage: UsageSummary, now: Date, to directory: URL) throws {
         let appearance = NSAppearance(named: .aqua) ?? NSAppearance.currentDrawing()
-        for style in BadgeStyle.allCases {
-            let bitmap = try makeBitmap(size: menuBarSampleSize, pixelScale: menuBarSamplePixelScale)
-            NSGraphicsContext.saveGraphicsState()
-            defer { NSGraphicsContext.restoreGraphicsState() }
-            guard let context = NSGraphicsContext(bitmapImageRep: bitmap) else {
-                throw ExportError.bitmapContextUnavailable
-            }
-            NSGraphicsContext.current = context
-            context.imageInterpolation = .high
-            context.shouldAntialias = true
-
-            appearance.performAsCurrentDrawingAppearance {
-                drawBackdrop(in: menuBarSampleSize)
-
-                let rendering = UsageBadgeRenderer.rendering(
-                    for: usage,
-                    style: style,
-                    appearance: appearance,
-                    now: now
-                )
-                rendering.image.draw(
-                    in: centeredBadgeRect(in: menuBarSampleSize, width: 172, height: 48),
-                    from: .zero,
-                    operation: .sourceOver,
-                    fraction: 1
-                )
-            }
-
-            let filename = style == .doubleRing ? "double-ring" : "large-readout"
-            let destination = directory.appendingPathComponent("menu-bar-badge-\(filename).png")
-            try writePNG(bitmap, to: destination)
-            print("Wrote \(destination.path)")
-        }
+        try writeBadgeSamples(usage: usage, appearance: appearance, filename: "menu-bar-badge", now: now, to: directory)
     }
 
-    private static func writeCreditBalanceImage(now: Date, to directory: URL) throws {
-        let size = NSSize(width: 760, height: 160)
-        let bitmap = try makeBitmap(size: size, pixelScale: 2)
+    private static func writeCreditBalanceImages(now: Date, to directory: URL) throws {
         let appearance = NSAppearance(named: .aqua) ?? NSAppearance.currentDrawing()
         let usage = try makeUsage(fiveHour: 0, weekly: 68, now: now, purchasedCreditBalance: "218.3286855")
-
-        NSGraphicsContext.saveGraphicsState()
-        defer { NSGraphicsContext.restoreGraphicsState() }
-        guard let context = NSGraphicsContext(bitmapImageRep: bitmap) else {
-            throw ExportError.bitmapContextUnavailable
-        }
-        NSGraphicsContext.current = context
-        context.imageInterpolation = .high
-        context.shouldAntialias = true
-
-        appearance.performAsCurrentDrawingAppearance {
-            drawBackdrop(in: size)
-
-            for (index, style) in BadgeStyle.allCases.enumerated() {
-                let rendering = UsageBadgeRenderer.rendering(for: usage, style: style, appearance: appearance, now: now)
-                let columnWidth = size.width / CGFloat(BadgeStyle.allCases.count)
-                let badgeRect = NSRect(
-                    x: columnWidth * CGFloat(index) + (columnWidth - 172) / 2,
-                    y: (size.height - 48) / 2,
-                    width: 172,
-                    height: 48
-                )
-                rendering.image.draw(in: badgeRect, from: .zero, operation: .sourceOver, fraction: 1)
-                rendering.warningOverlay?.draw(in: badgeRect, from: .zero, operation: .sourceOver, fraction: 1)
-            }
-        }
-
-        let destination = directory.appendingPathComponent("menu-bar-credit-balance.png")
-        try writePNG(bitmap, to: destination)
-        print("Wrote \(destination.path)")
+        try writeBadgeSamples(usage: usage, appearance: appearance, filename: "menu-bar-credit", now: now, to: directory)
     }
 
     private static func makeUsage(
@@ -192,7 +126,7 @@ private enum ExportReadmeBadgeMedia {
         now: Date,
         animationFrame: UsageBadgeAnimationFrame
     ) throws -> CGImage {
-        let bitmap = try makeBitmap(size: canvasSize, pixelScale: animationPixelScale)
+        let bitmap = try makeBitmap(size: canvasSize, pixelScale: canvasPixelScale)
         NSGraphicsContext.saveGraphicsState()
         defer { NSGraphicsContext.restoreGraphicsState() }
         guard let context = NSGraphicsContext(bitmapImageRep: bitmap) else {
@@ -212,7 +146,7 @@ private enum ExportReadmeBadgeMedia {
                 now: now,
                 animationFrame: animationFrame
             )
-            let rect = enlargedBadgeRect
+            let rect = badgeRect
             rendering.image.draw(in: rect, from: .zero, operation: .sourceOver, fraction: 1)
             if let overlay = rendering.resetOverlay {
                 overlay.draw(in: rect, from: .zero, operation: .sourceOver,
@@ -224,42 +158,56 @@ private enum ExportReadmeBadgeMedia {
         return image
     }
 
-    private static func writeReminderImage(usage: UsageSummary, now: Date, to url: URL) throws {
-        let size = NSSize(width: 760, height: 160)
-        let bitmap = try makeBitmap(size: size, pixelScale: 2)
-        NSGraphicsContext.saveGraphicsState()
-        defer { NSGraphicsContext.restoreGraphicsState() }
-        guard let context = NSGraphicsContext(bitmapImageRep: bitmap) else {
-            throw ExportError.bitmapContextUnavailable
-        }
-        NSGraphicsContext.current = context
-        context.imageInterpolation = .high
-        context.shouldAntialias = true
-
+    private static func writeExpiryReminderImages(usage: UsageSummary, now: Date, to directory: URL) throws {
         let appearance = NSAppearance(named: .aqua) ?? NSAppearance.currentDrawing()
-        appearance.performAsCurrentDrawingAppearance {
-            drawBackdrop(in: size)
+        try writeBadgeSamples(
+            usage: usage,
+            appearance: appearance,
+            filename: "menu-bar-expiry",
+            now: now,
+            showExpiryReminder: true,
+            to: directory
+        )
+    }
 
-            for (index, style) in BadgeStyle.allCases.enumerated() {
+    private static func writeBadgeSamples(
+        usage: UsageSummary,
+        appearance: NSAppearance,
+        filename: String,
+        now: Date,
+        showExpiryReminder: Bool = false,
+        to directory: URL
+    ) throws {
+        for style in BadgeStyle.allCases {
+            let bitmap = try makeBitmap(size: canvasSize, pixelScale: canvasPixelScale)
+            NSGraphicsContext.saveGraphicsState()
+            defer { NSGraphicsContext.restoreGraphicsState() }
+            guard let context = NSGraphicsContext(bitmapImageRep: bitmap) else {
+                throw ExportError.bitmapContextUnavailable
+            }
+            NSGraphicsContext.current = context
+            context.imageInterpolation = .high
+            context.shouldAntialias = true
+
+            appearance.performAsCurrentDrawingAppearance {
+                drawBackdrop(in: canvasSize)
                 let rendering = UsageBadgeRenderer.rendering(
                     for: usage,
                     style: style,
                     appearance: appearance,
-                    now: now
-                )
-                let columnWidth = size.width / CGFloat(BadgeStyle.allCases.count)
-                let badgeRect = NSRect(
-                    x: columnWidth * CGFloat(index) + (columnWidth - 258) / 2,
-                    y: (size.height - 72) / 2,
-                    width: 258,
-                    height: 72
+                    now: now,
+                    showExpiryReminder: showExpiryReminder
                 )
                 rendering.image.draw(in: badgeRect, from: .zero, operation: .sourceOver, fraction: 1)
-                drawExpiryDot(in: badgeRect, scale: 3)
+                rendering.warningOverlay?.draw(in: badgeRect, from: .zero, operation: .sourceOver, fraction: 1)
+                if showExpiryReminder { drawExpiryDot(in: badgeRect) }
             }
-        }
 
-        try writePNG(bitmap, to: url)
+            let styleName = style == .doubleRing ? "double-ring" : "large-readout"
+            let destination = directory.appendingPathComponent("\(filename)-\(styleName).png")
+            try writePNG(bitmap, to: destination)
+            print("Wrote \(destination.path)")
+        }
     }
 
     private static func drawBackdrop(in size: NSSize) {
@@ -274,13 +222,13 @@ private enum ExportReadmeBadgeMedia {
         try data.write(to: url, options: .atomic)
         guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
               let image = CGImageSourceCreateImageAtIndex(source, 0, nil),
-              image.width == bitmap.pixelsWide,
-              image.height == bitmap.pixelsHigh else {
+              image.width == Int(canvasSize.width) * canvasPixelScale,
+              image.height == Int(canvasSize.height) * canvasPixelScale else {
             throw ExportError.pngMetadataVerificationFailed
         }
     }
 
-    private static func makeBitmap(size: NSSize, pixelScale: Int = 1) throws -> NSBitmapImageRep {
+    private static func makeBitmap(size: NSSize, pixelScale: Int) throws -> NSBitmapImageRep {
         guard let bitmap = NSBitmapImageRep(
             bitmapDataPlanes: nil,
             pixelsWide: Int(size.width) * pixelScale,
@@ -299,16 +247,18 @@ private enum ExportReadmeBadgeMedia {
         return bitmap
     }
 
-    private static func centeredBadgeRect(in size: NSSize, width: CGFloat, height: CGFloat) -> NSRect {
-        NSRect(x: (size.width - width) / 2, y: (size.height - height) / 2, width: width, height: height)
+    private static var badgeRect: NSRect {
+        NSRect(
+            x: (canvasSize.width - badgeDisplaySize.width) / 2,
+            y: (canvasSize.height - badgeDisplaySize.height) / 2,
+            width: badgeDisplaySize.width,
+            height: badgeDisplaySize.height
+        )
     }
 
-    private static var enlargedBadgeRect: NSRect {
-        centeredBadgeRect(in: canvasSize, width: 172, height: 48)
-    }
-
-    private static func drawExpiryDot(in badgeRect: NSRect, scale: CGFloat) {
+    private static func drawExpiryDot(in badgeRect: NSRect) {
         // Mirrors the 4.5 pt dot overlaid by UsageBadgeRenderer.apply on the 90 pt status item.
+        let scale = badgeRect.width / 86
         let localRect = NSRect(x: 80.5, y: 18.5, width: 4.5, height: 4.5)
         let dotRect = NSRect(
             x: badgeRect.minX + localRect.minX * scale,
@@ -353,8 +303,8 @@ private enum ExportReadmeBadgeMedia {
         guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
               let properties = CGImageSourceCopyProperties(source, nil) as? [CFString: Any],
               let gifProperties = properties[kCGImagePropertyGIFDictionary] as? [CFString: Any],
-              (gifProperties[kCGImagePropertyGIFCanvasPixelWidth] as? NSNumber)?.intValue == Int(canvasSize.width) * animationPixelScale,
-              (gifProperties[kCGImagePropertyGIFCanvasPixelHeight] as? NSNumber)?.intValue == Int(canvasSize.height) * animationPixelScale,
+              (gifProperties[kCGImagePropertyGIFCanvasPixelWidth] as? NSNumber)?.intValue == Int(canvasSize.width) * canvasPixelScale,
+              (gifProperties[kCGImagePropertyGIFCanvasPixelHeight] as? NSNumber)?.intValue == Int(canvasSize.height) * canvasPixelScale,
               (gifProperties[kCGImagePropertyGIFLoopCount] as? NSNumber)?.intValue == 0 else {
             throw ExportError.gifMetadataVerificationFailed
         }
