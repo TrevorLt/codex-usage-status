@@ -8,25 +8,29 @@ A small macOS menu-bar companion for seeing Codex 5-hour and weekly usage, with 
 
 | **Double Ring** (default) | **Large Readout** |
 |:---:|:---:|
-| <img src="docs/assets/menu-bar-badge-double-ring.png" width="300" alt="Double Ring quota badge"> | <img src="docs/assets/menu-bar-badge-large-readout.png" width="300" alt="Large Readout quota badge"> |
+| <img src="docs/assets/menu-bar-badge-double-ring.png" width="300" height="100" alt="Double Ring quota badge"> | <img src="docs/assets/menu-bar-badge-large-readout.png" width="300" height="100" alt="Large Readout quota badge"> |
 
 Switch between the two modes from the badge's **Display Style** menu.
 
 When the 5-hour quota is exhausted, a positive purchased credit balance replaces the zero in either style. Hovering shows the balance:
 
-<img src="docs/assets/menu-bar-credit-balance.png" width="760" alt="Double Ring and Large Readout badges showing purchased credits">
+| **Double Ring** | **Large Readout** |
+|:---:|:---:|
+| <img src="docs/assets/menu-bar-credit-double-ring.png" width="300" height="100" alt="Double Ring badge showing purchased credits"> | <img src="docs/assets/menu-bar-credit-large-readout.png" width="300" height="100" alt="Large Readout badge showing purchased credits"> |
 
 The 5-hour and 7-day readings animate smoothly when refreshed. A confirmed reset briefly highlights only the recovered window in green in both display modes.
 
 | **Double Ring reset animation** | **Large Readout reset animation** |
 |:---:|:---:|
-| <img src="docs/assets/badge-reset-double-ring.gif" width="220" alt="Double Ring reset recovery animation"> | <img src="docs/assets/badge-reset-large-readout.gif" width="220" alt="Large Readout reset recovery animation"> |
+| <img src="docs/assets/badge-reset-double-ring.gif" width="300" height="100" alt="Double Ring reset recovery animation"> | <img src="docs/assets/badge-reset-large-readout.gif" width="300" height="100" alt="Large Readout reset recovery animation"> |
 
 Reset animations loop continuously with a 1.5-second pause between cycles.
 
 An amber dot at the badge's upper-right corner marks an earned reset that expires within 72 hours. It stays on the badge as a quiet reminder; the menu offers a direct path to use the earliest known-expiring reset.
 
-<img src="docs/assets/reset-expiry-reminder.png" width="760" alt="Double Ring and Large Readout badges with amber expiry reminders">
+| **Double Ring** | **Large Readout** |
+|:---:|:---:|
+| <img src="docs/assets/menu-bar-expiry-double-ring.png" width="300" height="100" alt="Double Ring badge with an amber expiry reminder"> | <img src="docs/assets/menu-bar-expiry-large-readout.png" width="300" height="100" alt="Large Readout badge with an amber expiry reminder"> |
 
 This repository is an independent continuation based on [tollenceld/codex-usage-status](https://github.com/tollenceld/codex-usage-status), originally created by [@tollenceld](https://github.com/tollenceld). The original project and its MIT license remain credited; this repository is maintained independently.
 
