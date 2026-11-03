@@ -19,7 +19,7 @@ npm test
 bash scripts/test-wake-recovery.sh
 BUILD_ARCH=arm64 npm run build:macos
 BUILD_ARCH=x86_64 npm run build:macos
-dist/'Codex Usage Status.app'/Contents/MacOS/CodexUsageStatus --once
+"$HOME/Library/Caches/dev.local.CodexUsageStatus/build/Codex Usage Status.app/Contents/MacOS/CodexUsageStatus" --once
 ```
 
 When changing the badge renderer, refresh the README examples with:

@@ -26,7 +26,14 @@ test('DMG packaging rejects mismatched architecture or version before creating a
     ]) {
       const result = spawnSync('/bin/bash', [join(root, 'scripts/package-dmg.sh')], {
         encoding: 'utf8',
-        env: { ...process.env, PATH: `${join(root, 'bin')}:${process.env.PATH}`, BUILD_ARCH: arch, VERSION: version }
+        env: {
+          ...process.env,
+          PATH: `${join(root, 'bin')}:${process.env.PATH}`,
+          APP_DIR: join(root, 'dist', 'Codex Usage Status.app'),
+          HOME: root,
+          BUILD_ARCH: arch,
+          VERSION: version
+        }
       });
       assert.equal(result.error, undefined);
       assert.equal(result.status, mismatched ? 1 : 80);

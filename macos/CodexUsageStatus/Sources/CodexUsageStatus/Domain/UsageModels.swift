@@ -473,7 +473,7 @@ struct UsageSummary: Sendable {
             hoverLine(label: "5h", value: fiveHourText),
             hoverLine(label: "7-day", value: weeklyText),
         ]
-        if fiveHour.rawUsedPercent == 100, !fiveHour.isExpired(at: now),
+        if hasExhaustedWindowForCreditUse(at: now),
            let creditDescription = credits?.availabilityDescription {
             lines.append(creditDescription)
         }
@@ -481,6 +481,11 @@ struct UsageSummary: Sendable {
             lines.append("Showing last known readings")
         }
         return lines.joined(separator: "\n")
+    }
+
+    func hasExhaustedWindowForCreditUse(at now: Date) -> Bool {
+        (fiveHour.rawUsedPercent == 100 && !fiveHour.isExpired(at: now))
+            || (weekly.rawUsedPercent == 100 && !weekly.isExpired(at: now))
     }
 
     private func hoverFiveHourResetText(
@@ -514,7 +519,7 @@ struct UsageSummary: Sendable {
     ) -> String {
         guard let resetAt else { return "reset time unknown" }
         guard resetAt > now else { return "expired" }
-        return "\(dateFormatter.string(from: resetAt)) \(timeFormatter.string(from: resetAt))"
+        return "\(dateFormatter.string(from: resetAt)) \(timeFormatter.string(from: resetAt)) · \(relativeDuration(until: resetAt, now: now))"
     }
 
     private func relativeDuration(until resetAt: Date, now: Date) -> String {

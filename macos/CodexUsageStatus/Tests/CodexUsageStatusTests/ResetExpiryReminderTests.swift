@@ -182,23 +182,23 @@ final class ResetExpiryReminderTests: XCTestCase {
         XCTAssertEqual(ResetExpiryReminder.remainingTimeText(until: now.addingTimeInterval(48 * 60 * 60), now: now), "2 days")
     }
 
-    func testCompactHoverUsesLocalTimeAndDoesNotChangeAboutTooltip() throws {
+    func testCompactHoverShowsWeeklyCountdownAndDoesNotChangeAboutTooltip() throws {
         let timeZone = TimeZone(identifier: "America/Chicago")!
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = timeZone
         let now = calendar.date(from: DateComponents(year: 2026, month: 10, day: 29, hour: 23, minute: 50))!
         let usage = try makeUsage(
             fiveHourReset: now.addingTimeInterval(70 * 60),
-            weeklyReset: calendar.date(from: DateComponents(year: 2026, month: 10, day: 30, hour: 13))
+            weeklyReset: calendar.date(from: DateComponents(year: 2026, month: 11, day: 3, hour: 11, minute: 50))
         )
 
         XCTAssertEqual(
             usage.hoverTooltip(now: now, locale: Locale(identifier: "en_US"), timeZone: timeZone),
-            "5h · Tomorrow 01:00 · in 1h 10m\n7-day · 10/30 13:00"
+            "5h · Tomorrow 01:00 · in 1h 10m\n7-day · 11/03 11:50 · in 4d 13h"
         )
         XCTAssertEqual(
             usage.hoverTooltip(now: now, locale: Locale(identifier: "en_US"), timeZone: timeZone, showingLastKnownReadings: true),
-            "5h · Tomorrow 01:00 · in 1h 10m\n7-day · 10/30 13:00\nShowing last known readings"
+            "5h · Tomorrow 01:00 · in 1h 10m\n7-day · 11/03 11:50 · in 4d 13h\nShowing last known readings"
         )
         XCTAssertTrue(usage.tooltip(formatter: DateFormatter(), now: now).contains("Codex usage"), "About keeps its detailed diagnostic tooltip")
     }

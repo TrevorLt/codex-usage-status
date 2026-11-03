@@ -3,7 +3,8 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DIST_DIR="$ROOT_DIR/dist"
-APP_DIR="$DIST_DIR/Codex Usage Status.app"
+CACHE_DIR="${HOME:?HOME must be set}/Library/Caches/dev.local.CodexUsageStatus"
+APP_DIR="${APP_DIR:-$CACHE_DIR/build/Codex Usage Status.app}"
 VERSION="${VERSION:-0.1.4}"
 BUILD_ARCH="${BUILD_ARCH:-$(uname -m)}"
 DMG_NAME="CodexUsageStatus-${VERSION}-macos-${BUILD_ARCH}.dmg"
@@ -32,6 +33,9 @@ if [[ "$ACTUAL_ARCH" != "$BUILD_ARCH" || "$ACTUAL_VERSION" != "$VERSION" ]]; the
 fi
 
 mkdir -p "$DIST_DIR"
+HOST_ARCH="$(uname -m)"
+MODULE_CACHE_DIR="$CACHE_DIR/module-cache-dmg-$HOST_ARCH"
+mkdir -p "$MODULE_CACHE_DIR"
 STAGING_DIR="$(mktemp -d "${TMPDIR:-/tmp}/codex-usage-status-dmg.XXXXXX")"
 HELPER_DIR="$(mktemp -d "${TMPDIR:-/tmp}/codex-usage-status-dmg-helper.XXXXXX")"
 MOUNT_POINT=""
@@ -48,11 +52,10 @@ cleanup() {
 trap cleanup EXIT
 
 SDK_PATH="$(xcrun --show-sdk-path)"
-HOST_ARCH="$(uname -m)"
 swiftc -swift-version 6 \
   -sdk "$SDK_PATH" \
   -target "${HOST_ARCH}-apple-macosx13.0" \
-  -module-cache-path "$DIST_DIR/module-cache-dmg-$HOST_ARCH" \
+  -module-cache-path "$MODULE_CACHE_DIR" \
   "$ROOT_DIR/scripts/create-dmg-background.swift" \
   -o "$HELPER_DIR/create-dmg-background"
 

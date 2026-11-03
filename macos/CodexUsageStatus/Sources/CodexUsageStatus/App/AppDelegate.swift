@@ -407,11 +407,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 self.resetConsumptionAttemptStore.clear()
                 let canApply = generation == self.lifecycleGeneration && !self.isSleeping
                 if canApply {
-                    self.applyUsage(usage, confirmedResetWindows: changedWindows)
+                    self.applyUsage(usage, confirmedResetWindows: changedWindows, isConfirmedReset: true)
+                    self.showResetNoticeAfterBadgeAnimation(
+                        title: "Reset used",
+                        message: "Codex confirmed the reset and the usage status has been refreshed."
+                    )
+                } else {
+                    self.showResetNotice(title: "Reset used", message: "Codex confirmed the reset. Usage will be read again after wake.")
                 }
-                self.showResetNotice(title: "Reset used", message: canApply
-                    ? "Codex confirmed the reset and the usage status has been refreshed."
-                    : "Codex confirmed the reset. Usage will be read again after wake.")
             case .refreshPending(let detail):
                 self.resetConsumptionAttemptStore.clear()
                 self.lastError = ResetRedemptionFlowError(message: detail)
@@ -456,6 +459,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         alert.informativeText = message
         alert.addButton(withTitle: "OK")
         _ = presentResetAlert(alert)
+    }
+
+    private func showResetNoticeAfterBadgeAnimation(title: String, message: String) {
+        guard badgeTransition != nil else {
+            showResetNotice(title: title, message: message)
+            return
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + UsageBadgeTransition.frameInterval) { [weak self] in
+            self?.showResetNoticeAfterBadgeAnimation(title: title, message: message)
+        }
     }
 
     @objc private func dismissResetExpiryReminder() {
@@ -574,21 +587,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         requestRecoveryRefresh()
     }
 
-    private func applyUsage(_ usage: UsageSummary, confirmedResetWindows: Set<UsageWindowKind> = []) {
+    private func applyUsage(
+        _ usage: UsageSummary,
+        confirmedResetWindows: Set<UsageWindowKind> = [],
+        isConfirmedReset: Bool = false
+    ) {
         let previousUsage = lastUsage
         resetExpiryDismissalStore.prepare(accountID: usage.accountID)
         lastUsage = usage
         lastRefreshDate = Date()
         lastError = nil
         isAwaitingFreshRead = false
-        startBadgeTransition(from: previousUsage, to: usage, resetWindows: confirmedResetWindows)
+        startBadgeTransition(
+            from: previousUsage,
+            to: usage,
+            resetWindows: confirmedResetWindows,
+            isConfirmedReset: isConfirmedReset
+        )
         renderCurrentBadge()
     }
 
     private func startBadgeTransition(
         from previous: UsageSummary?,
         to current: UsageSummary,
-        resetWindows: Set<UsageWindowKind>
+        resetWindows: Set<UsageWindowKind>,
+        isConfirmedReset: Bool
     ) {
         let currentVisualFrame = badgeAnimationFrame
         stopBadgeAnimation()
@@ -600,16 +623,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             toFiveHour: Double(current.fiveHour.remainingPercent),
             toWeekly: Double(current.weekly.remainingPercent),
             startUptime: monotonicNow(),
-            resetWindows: resetWindows
+            resetWindows: resetWindows,
+            isConfirmedReset: isConfirmedReset
         )
-        guard abs(transition.fromFiveHour - transition.toFiveHour) >= 0.01
-                || abs(transition.fromWeekly - transition.toWeekly) >= 0.01 else {
-            return
-        }
+        guard transition.shouldAnimate else { return }
 
         badgeTransition = transition
         badgeAnimationFrame = transition.frame(at: monotonicNow())
-        let animationTimer = Timer(timeInterval: 1.0 / 30.0, target: self,
+        let animationTimer = Timer(timeInterval: UsageBadgeTransition.frameInterval, target: self,
                                    selector: #selector(badgeAnimationTimerDidFire), userInfo: nil, repeats: true)
         badgeAnimationTimer = animationTimer
         RunLoop.main.add(animationTimer, forMode: .common)

@@ -12,13 +12,13 @@ A small macOS menu-bar companion for seeing Codex 5-hour and weekly usage, with 
 
 Switch between the two modes from the badge's **Display Style** menu.
 
-When the 5-hour quota is exhausted, a positive purchased credit balance replaces the zero in either style. Hovering shows the balance:
+When either the 5-hour or weekly quota is exhausted, a positive purchased credit balance replaces the left reading in either style. Hovering shows the balance:
 
 | **Double Ring** | **Large Readout** |
 |:---:|:---:|
 | <img src="docs/assets/menu-bar-credit-double-ring.png" width="300" height="100" alt="Double Ring badge showing purchased credits"> | <img src="docs/assets/menu-bar-credit-large-readout.png" width="300" height="100" alt="Large Readout badge showing purchased credits"> |
 
-The 5-hour and 7-day readings animate smoothly when refreshed. A confirmed reset briefly highlights only the recovered window in green in both display modes.
+The 5-hour and 7-day readings animate smoothly when refreshed. A confirmed reset briefly highlights the recovered window in green when it is identifiable; otherwise, a subtle outline acknowledges the reset without guessing which quota changed.
 
 | **Double Ring reset animation** | **Large Readout reset animation** |
 |:---:|:---:|
@@ -54,13 +54,13 @@ This repository is an independent continuation based on [tollenceld/codex-usage-
 - Turns only the low-usage ring or readout bar red below 20%; the percentage text remains readable.
 - Marks last-known readings with a neutral `~` directly beside each cached percentage.
 - Refreshes adaptively while keeping a hard 30-second minimum between automatic requests.
-- When the 5-hour quota is fully exhausted, shows a positive purchased-credit balance in the badge (separate from earned resets); it updates with the existing adaptive usage poll, and hover rounds the balance to at most three decimal places.
+- When the 5-hour or weekly quota is fully exhausted, shows a positive purchased-credit balance in the badge (separate from earned resets); it updates with the existing adaptive usage poll, and hover rounds the balance to at most three decimal places.
 - Recovers after sleep, display wake, and network recovery without duplicating requests.
 - Provides a checkable Launch at Login menu item and a live `Next refresh` countdown in About.
 - Keeps app startup on the native hardware architecture, restores the login task if launch fails, and verifies the exact launched app path.
 - Shows a compact badge reminder when an earned reset expires within 72 hours; the menu can jump to the earliest known expiry, confirm its use, or dismiss that reminder batch.
 - Shows each earned reset's known expiration in About and formats About timestamps consistently in the current local time zone.
-- Smoothly animates quota changes and confirms reset recovery with a brief green progress animation in both display modes.
+- Smoothly animates quota changes and confirms reset recovery with a brief green animation in both display modes.
 - Includes a branded app icon and Retina-ready DMG packaging.
 
 The app is a usage monitor, not an account manager. It cannot log in, switch accounts, change limits, buy credits, or bypass usage limits. It can consume one earned reset only after you choose **Use reset** and confirm.
@@ -173,10 +173,12 @@ BUILD_ARCH=x86_64 npm run build:macos
 env -u BUILD_ARCH npm run build:macos  # restore the hardware-native build before running it
 ```
 
+Build apps and Swift module caches are stored in
+`~/Library/Caches/dev.local.CodexUsageStatus`; release archives stay in `dist/`.
 For a one-shot local usage probe, use the built executable:
 
 ```sh
-dist/'Codex Usage Status.app'/Contents/MacOS/CodexUsageStatus --once
+"$HOME/Library/Caches/dev.local.CodexUsageStatus/build/Codex Usage Status.app/Contents/MacOS/CodexUsageStatus" --once
 ```
 
 ## Test and verification
@@ -196,7 +198,7 @@ env -u BUILD_ARCH npm run build:macos  # restore the hardware-native build befor
 
 `npm run test:badge-animation` checks animation frames without AppKit or real-time waits. `npm run test:reset-flow` exercises reset success, fresh reads, unchanged windows, and failure paths against a fake client; it never calls the account reset endpoint. The native suite also checks rendered reset highlights, stale-number layout, and exact About expiry lines.
 
-To inspect frames manually, run `npm run preview:badge-animations`. The standalone preview window shows both display styles in light and dark appearances. Select a normal refresh, confirmed 5h/7-day reset, unchanged reset result, reset-expiry reminder, last-known state, or the static **5H exhausted · purchased credits** state, then drag the timeline or press Play. It uses synthetic local values and cannot redeem a real reset.
+To inspect frames manually, run `npm run preview:badge-animations`. The standalone preview window shows both display styles in light and dark appearances. Select a normal refresh, confirmed 5h/7-day reset, unchanged reset result, reset-expiry reminder, last-known state, or either static purchased-credit state, then drag the timeline or press Play. It uses synthetic local values and cannot redeem a real reset.
 
 For release artifacts, the repository also verifies app identity, architecture, code-signing structure, icon embedding, DMG contents, and SHA-256 checksums. See [the release checklist](docs/release-checklist.md).
 
@@ -210,7 +212,14 @@ npm run package:macos:all   # arm64 and x86_64 artifacts
 npm run package:macos:dmg  # DMG for the selected architecture
 ```
 
-Generated artifacts include the app bundle, architecture-specific ZIP/DMG files, and `SHA256SUMS.txt`. Public releases should use Apple Developer ID signing and notarization; local builds are ad-hoc signed by default. Notarization is not automated because it requires Apple developer credentials.
+Use Git commits/tags for source history and versioned releases for downloadable
+builds. The temporary app bundle and compiler caches stay in
+`~/Library/Caches/dev.local.CodexUsageStatus`; `dist/` contains release ZIP/DMG
+files and `SHA256SUMS.txt`. After a successful install, the installer keeps one
+rollback copy beside the installed app and prunes older installer backups.
+Public releases should use Apple Developer ID signing and notarization; local
+builds are ad-hoc signed by default. Notarization is not automated because it
+requires Apple developer credentials.
 
 Release process and artifact checks are documented in [docs/release.md](docs/release.md), and version-specific download guides live in the release notes.
 

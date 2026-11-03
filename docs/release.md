@@ -12,7 +12,7 @@ npm run package:macos:all
 
 Output:
 
-- `dist/Codex Usage Status.app`
+- `~/Library/Caches/dev.local.CodexUsageStatus/build/Codex Usage Status.app` (temporary local build)
 - `dist/CodexUsageStatus-<version>-macos-arm64.zip`
 - `dist/CodexUsageStatus-<version>-macos-x86_64.zip`
 - `dist/CodexUsageStatus-<version>-macos-arm64.dmg`

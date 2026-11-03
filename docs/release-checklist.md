@@ -14,13 +14,14 @@ npm run package:macos:all
 
 The native suite must emit `NATIVE TEST SUITE PASS` after every required harness has emitted its own PASS marker, including the login-item profile harness. A GUI process exiting zero before its assertions execute is not a pass. Run from a logged-in macOS graphical session; missing WindowServer access is a failure requiring investigation. `npm run test:swiftpm` is required in CI and the release workflow. The logo geometry verifier currently requires a developer-local `sharp` path and is not a portable CI prerequisite.
 
-Confirm the generated app architecture:
+Confirm the generated app architecture and signing:
 
 ```sh
-lipo -archs "dist/Codex Usage Status.app/Contents/MacOS/CodexUsageStatus"
-codesign --verify --deep --strict --verbose=2 "dist/Codex Usage Status.app"
-plutil -extract CFBundleIconFile raw -o - "dist/Codex Usage Status.app/Contents/Info.plist"
-test -f "dist/Codex Usage Status.app/Contents/Resources/CodexUsageStatus.icns"
+BUILD_APP="$HOME/Library/Caches/dev.local.CodexUsageStatus/build/Codex Usage Status.app"
+lipo -archs "$BUILD_APP/Contents/MacOS/CodexUsageStatus"
+codesign --verify --deep --strict --verbose=2 "$BUILD_APP"
+plutil -extract CFBundleIconFile raw -o - "$BUILD_APP/Contents/Info.plist"
+test -f "$BUILD_APP/Contents/Resources/CodexUsageStatus.icns"
 test -f dist/CodexUsageStatus-0.1.4-macos-arm64.dmg
 test -f dist/CodexUsageStatus-0.1.4-macos-x86_64.dmg
 ```
@@ -29,7 +30,7 @@ Run a live local data-source check on a signed-in Codex desktop installation:
 
 ```sh
 env -u BUILD_ARCH npm run build:macos
-"dist/Codex Usage Status.app/Contents/MacOS/CodexUsageStatus" --once
+"$HOME/Library/Caches/dev.local.CodexUsageStatus/build/Codex Usage Status.app/Contents/MacOS/CodexUsageStatus" --once
 ```
 
 Run probes only with the hardware-native build. On Apple silicon, validate Intel artifacts with `lipo` and code-signature checks; executing an Intel build through Rosetta can trigger macOS compatibility warnings for the app name.

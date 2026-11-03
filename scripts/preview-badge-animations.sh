@@ -4,7 +4,7 @@ set -euo pipefail
 project_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source_dir="$project_root/macos/CodexUsageStatus/Sources/CodexUsageStatus"
 preview_source="$project_root/macos/CodexUsageStatus/IntegrationTests/BadgeAnimationPreview/main.swift"
-preview_dir="$project_root/dist"
+preview_dir="${HOME:?HOME must be set}/Library/Caches/dev.local.CodexUsageStatus/previews"
 preview_app="$preview_dir/Codex Usage Status Animation Preview v0.1.4.app"
 preview_contents="$preview_app/Contents"
 module_cache="$preview_dir/module-cache-badge-preview"

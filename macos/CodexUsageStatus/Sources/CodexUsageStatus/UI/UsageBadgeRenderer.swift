@@ -54,16 +54,17 @@ enum UsageBadgeRenderer {
         animationFrame: UsageBadgeAnimationFrame? = nil
     ) -> UsageBadgeRendering {
         let staleKinds = staleWindows ?? (isStale ? [.fiveHour, .weekly] : [])
-        let creditBalanceText = animationFrame == nil
-            ? creditBalanceBadgeText(for: usage, now: now, hideReadings: hideReadings)
-            : nil
+        let creditBalanceText = creditBalanceBadgeText(for: usage, now: now, hideReadings: hideReadings)
+        let showingFiveHourReset = animationFrame?.resetWindows.contains(.fiveHour) == true
         return render(
             style: style,
             left: BadgeValue(
                 label: creditBalanceText == nil ? "5H" : "C",
-                percent: hideReadings || usage.fiveHour.isExpired(at: now) ? nil : usage.fiveHour.remainingPercent,
+                percent: hideReadings || usage.fiveHour.isExpired(at: now) || (creditBalanceText != nil && !showingFiveHourReset)
+                    ? nil : usage.fiveHour.remainingPercent,
                 overrideText: creditBalanceText,
-                displayedPercent: hideReadings || usage.fiveHour.isExpired(at: now) ? nil : animationFrame?.fiveHourPercent,
+                displayedPercent: hideReadings || usage.fiveHour.isExpired(at: now) || (creditBalanceText != nil && !showingFiveHourReset)
+                    ? nil : animationFrame?.fiveHourPercent,
                 isStale: staleKinds.contains(.fiveHour)
             ),
             right: BadgeValue(
@@ -81,8 +82,7 @@ enum UsageBadgeRenderer {
 
     static func creditBalanceBadgeText(for usage: UsageSummary, now: Date, hideReadings: Bool = false) -> String? {
         guard !hideReadings,
-              usage.fiveHour.rawUsedPercent == 100,
-              !usage.fiveHour.isExpired(at: now),
+              usage.hasExhaustedWindowForCreditUse(at: now),
               let credits = usage.credits else {
             return nil
         }
@@ -230,7 +230,7 @@ enum UsageBadgeRenderer {
                 warningOverlay: true
             )
             : nil
-        let resetOverlay = forcedColor == nil && !resetWindows.isEmpty
+        let resetOverlay = forcedColor == nil && (!resetWindows.isEmpty || resetOverlayAlpha > 0)
             ? renderResetOverlay(style: style, left: left, right: right, appearance: appearance, resetWindows: resetWindows)
             : nil
 
@@ -278,14 +278,18 @@ enum UsageBadgeRenderer {
                 NSRect(origin: .zero, size: size).fill()
                 switch style {
                 case .doubleRing:
-                    if resetWindows.contains(.fiveHour) {
+                    if resetWindows.isEmpty {
+                        drawResetAcknowledgment(in: size)
+                    } else if resetWindows.contains(.fiveHour) {
                         drawResetRing(percent: left.progressPercent, center: NSPoint(x: 29, y: 12))
                     }
                     if resetWindows.contains(.weekly) {
                         drawResetRing(percent: right.progressPercent, center: NSPoint(x: 75, y: 12))
                     }
                 case .largeReadout:
-                    if resetWindows.contains(.fiveHour), let percent = left.progressPercent {
+                    if resetWindows.isEmpty {
+                        drawResetAcknowledgment(in: size)
+                    } else if resetWindows.contains(.fiveHour), let percent = left.progressPercent {
                         drawReadoutFill(percent: percent, lineRect: NSRect(x: 1, y: 2.4, width: 36, height: 1.5), color: .systemGreen, alpha: 1)
                     }
                     if resetWindows.contains(.weekly), let percent = right.progressPercent {
@@ -298,6 +302,14 @@ enum UsageBadgeRenderer {
 
         image.isTemplate = false
         return image
+    }
+
+    private static func drawResetAcknowledgment(in size: NSSize) {
+        // Codex confirmed the reset but did not identify a recovered window.
+        let outline = NSBezierPath(roundedRect: NSRect(x: 1.2, y: 1.2, width: size.width - 2.4, height: size.height - 2.4), xRadius: 5, yRadius: 5)
+        outline.lineWidth = 0.8
+        NSColor.systemGreen.setStroke()
+        outline.stroke()
     }
 
     private static func drawResetRing(percent: Double?, center: NSPoint) {

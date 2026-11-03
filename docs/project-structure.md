@@ -12,9 +12,10 @@ This repository is organized as a small, native macOS companion app plus a Node.
 - `docs/`: architecture, release, and upstream integration notes.
 - `.github/workflows/`: CI and release packaging workflows.
 
-Generated output is intentionally kept out of git:
+Generated output is intentionally kept out of git and out of the source tree:
 
-- `dist/`: local `.app` and release ZIP output.
+- `~/Library/Caches/dev.local.CodexUsageStatus/`: local app builds, previews, and Swift compiler caches.
+- `dist/`: release ZIP/DMG archives and checksums.
 - `macos/CodexUsageStatus/.build/`: SwiftPM build cache.
 - `node_modules/`: local Node dependencies if any are added later.
 

@@ -9,6 +9,8 @@ struct UsageBadgeAnimationFrame: Equatable, Sendable {
 }
 
 struct UsageBadgeTransition: Sendable {
+    static let frameInterval: TimeInterval = 1.0 / 60.0
+
     let fromFiveHour: Double
     let fromWeekly: Double
     let toFiveHour: Double
@@ -16,6 +18,13 @@ struct UsageBadgeTransition: Sendable {
     let startUptime: TimeInterval
     let duration: TimeInterval
     let resetWindows: Set<UsageWindowKind>
+    let isConfirmedReset: Bool
+
+    var shouldAnimate: Bool {
+        isConfirmedReset
+            || abs(fromFiveHour - toFiveHour) >= 0.01
+            || abs(fromWeekly - toWeekly) >= 0.01
+    }
 
     init(
         fromFiveHour: Double,
@@ -23,14 +32,17 @@ struct UsageBadgeTransition: Sendable {
         toFiveHour: Double,
         toWeekly: Double,
         startUptime: TimeInterval,
-        resetWindows: Set<UsageWindowKind> = []
+        resetWindows: Set<UsageWindowKind> = [],
+        isConfirmedReset: Bool = false
     ) {
         self.fromFiveHour = Self.clamp(fromFiveHour)
         self.fromWeekly = Self.clamp(fromWeekly)
         self.toFiveHour = Self.clamp(toFiveHour)
         self.toWeekly = Self.clamp(toWeekly)
         self.startUptime = startUptime
-        duration = resetWindows.isEmpty ? 0.36 : 0.92
+        let confirmedReset = isConfirmedReset || !resetWindows.isEmpty
+        self.isConfirmedReset = confirmedReset
+        duration = confirmedReset ? 0.92 : 0.36
         self.resetWindows = resetWindows
     }
 
@@ -39,7 +51,7 @@ struct UsageBadgeTransition: Sendable {
         let linearProgress = elapsed >= duration - 0.000_001 ? 1 : min(1, elapsed / duration)
         let easedProgress = 1 - pow(1 - linearProgress, 3)
         let resetAlpha: Double
-        if resetWindows.isEmpty {
+        if !isConfirmedReset {
             resetAlpha = 0
         } else {
             let fadeStart = 0.78

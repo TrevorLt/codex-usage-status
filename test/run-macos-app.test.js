@@ -9,11 +9,11 @@ test('local startup uses the hardware architecture before stopping or opening an
   const root = await mkdtemp(join(tmpdir(), 'codex-native-launch-test-'));
   const log = join(root, 'commands.log');
   const started = join(root, 'started');
-  const executable = join(root, 'dist/Codex Usage Status.app/Contents/MacOS/CodexUsageStatus');
+  const executable = join(root, 'Library/Caches/dev.local.CodexUsageStatus/build/Codex Usage Status.app/Contents/MacOS/CodexUsageStatus');
   try {
     await mkdir(join(root, 'scripts'));
     await mkdir(join(root, 'bin'));
-    await mkdir(join(root, 'dist/Codex Usage Status.app/Contents/MacOS'), { recursive: true });
+    await mkdir(join(root, 'Library/Caches/dev.local.CodexUsageStatus/build/Codex Usage Status.app/Contents/MacOS'), { recursive: true });
     await copyFile(new URL('../scripts/run-macos-app.sh', import.meta.url), join(root, 'scripts/run-macos-app.sh'));
     const commands = {
       'bin/uname': 'echo "$TEST_PROCESS_ARCH"',
@@ -23,7 +23,7 @@ test('local startup uses the hardware architecture before stopping or opening an
       'bin/launchctl': 'exit 0',
       'bin/ps': 'if test -f "$TEST_STARTED"; then printf "999 S %s\\n" "$TEST_EXECUTABLE"; fi',
       'bin/open': 'echo open >> "$TEST_LOG"; touch "$TEST_STARTED"',
-      'scripts/build-macos-app.sh': 'echo "build $BUILD_ARCH" >> "$TEST_LOG"\nprintf "%s" "${TEST_REBUILT_ARCH:-$BUILD_ARCH}" > "$TEST_EXECUTABLE"'
+      'scripts/build-macos-app.sh': 'echo "build $BUILD_ARCH" >> "$TEST_LOG"\nprintf "%s" "${TEST_REBUILT_ARCH:-$BUILD_ARCH}" > "$TEST_EXECUTABLE"\nprintf "%s\\n" "${TEST_EXECUTABLE%/Contents/MacOS/CodexUsageStatus}"'
     };
     for (const [name, body] of Object.entries(commands)) {
       const path = join(root, name);
@@ -44,7 +44,7 @@ test('local startup uses the hardware architecture before stopping or opening an
       const result = spawnSync('/bin/bash', [join(root, 'scripts/run-macos-app.sh')], {
         encoding: 'utf8',
         env: {
-          ...process.env, PATH: `${join(root, 'bin')}:${process.env.PATH}`, BUILD_ARCH: 'x86_64',
+          ...process.env, PATH: `${join(root, 'bin')}:${process.env.PATH}`, HOME: root, BUILD_ARCH: 'x86_64',
           TEST_PROCESS_ARCH: processArch, TEST_ARM_HARDWARE: armHardware,
           TEST_REBUILT_ARCH: rebuiltArch, TEST_LOG: log, TEST_EXECUTABLE: executable, TEST_STARTED: started
         }

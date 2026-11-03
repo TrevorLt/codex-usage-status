@@ -33,6 +33,68 @@ struct BadgeRenderingAudit {
         let creditsForEmptyWindow = try makeUsage(primaryRemaining: 0, weeklyRemaining: 88, now: now, purchasedCreditBalance: "1234")
         check(UsageBadgeRenderer.creditBalanceBadgeText(for: creditsForEmptyWindow, now: now) == "1234",
             "an exhausted 5h window shows the exact available credit count up to four digits")
+        let creditsForEmptyWeek = try makeUsage(primaryRemaining: 42, weeklyRemaining: 0, now: now, purchasedCreditBalance: "1234")
+        check(UsageBadgeRenderer.creditBalanceBadgeText(for: creditsForEmptyWeek, now: now) == "1234",
+            "an exhausted weekly window shows credits even while the 5h window has quota left")
+        let almostExhaustedWeek = try makeUsage(
+            primaryRemaining: 42,
+            weeklyRemaining: 0,
+            now: now,
+            purchasedCreditBalance: "1234",
+            weeklyUsedPercent: 99.6
+        )
+        check(UsageBadgeRenderer.creditBalanceBadgeText(for: almostExhaustedWeek, now: now) == nil,
+            "a weekly value rounded to zero does not show credits before full exhaustion")
+        let noCreditsForEmptyWeek = try makeUsage(primaryRemaining: 42, weeklyRemaining: 0, now: now)
+        check(UsageBadgeRenderer.creditBalanceBadgeText(for: noCreditsForEmptyWeek, now: now) == nil,
+            "an exhausted weekly window keeps the normal 5h reading when the user has no purchased credits")
+        let creditModeReference = try makeUsage(primaryRemaining: 0, weeklyRemaining: 0, now: now, purchasedCreditBalance: "1234")
+        let weeklyDepletionAnimation = UsageBadgeTransition(
+            fromFiveHour: 42,
+            fromWeekly: 8,
+            toFiveHour: 42,
+            toWeekly: 0,
+            startUptime: 0
+        ).frame(at: 0.18)
+        for style in BadgeStyle.allCases {
+            let appearance = try unwrap(NSAppearance(named: .darkAqua), "missing dark appearance")
+            let creditModeDuringAnimation = UsageBadgeRenderer.rendering(
+                for: creditsForEmptyWeek,
+                style: style,
+                appearance: appearance,
+                now: now,
+                animationFrame: weeklyDepletionAnimation
+            )
+            let creditModeReferenceImage = UsageBadgeRenderer.rendering(
+                for: creditModeReference,
+                style: style,
+                appearance: appearance,
+                now: now
+            )
+            check(countDifferentPixels(
+                in: try rasterize(creditModeDuringAnimation.image),
+                and: try rasterize(creditModeReferenceImage.image),
+                xRange: 0..<44,
+                yRange: 0..<24
+            ) == 0, "\(style) switches to credit mode immediately while weekly depletion animates")
+        }
+        let fiveHourResetDuringCreditMode = UsageBadgeTransition(
+            fromFiveHour: 42,
+            fromWeekly: 0,
+            toFiveHour: 100,
+            toWeekly: 0,
+            startUptime: 0,
+            resetWindows: [.fiveHour]
+        ).frame(at: 0.18)
+        let resetRendering = UsageBadgeRenderer.rendering(
+            for: creditsForEmptyWeek,
+            style: .doubleRing,
+            appearance: try unwrap(NSAppearance(named: .darkAqua), "missing dark appearance"),
+            now: now,
+            animationFrame: fiveHourResetDuringCreditMode
+        )
+        check(resetRendering.resetOverlay != nil && resetRendering.resetOverlayAlpha > 0,
+            "a confirmed 5h recharge remains visible while weekly exhaustion keeps credit mode active")
         let almostExhausted = try makeUsage(primaryRemaining: 0, weeklyRemaining: 88, now: now, purchasedCreditBalance: "1234", primaryUsedPercent: 99.6)
         check(UsageBadgeRenderer.creditBalanceBadgeText(for: almostExhausted, now: now) == nil,
             "rounding a nearly exhausted window to zero does not show purchased credits early")
@@ -213,6 +275,33 @@ struct BadgeRenderingAudit {
                 check(countPixels(in: button.bitmap, xRange: 48..<86, matching: tint == .white ? .lightNeutral : .darkNeutral) > 0,
                     "\(style) mixed-state normal window keeps native tint in \(appearanceLabel)")
             }
+        }
+
+        let unknownWindowReset = UsageBadgeTransition(
+            fromFiveHour: 19,
+            fromWeekly: 88,
+            toFiveHour: 19,
+            toWeekly: 88,
+            startUptime: 0,
+            isConfirmedReset: true
+        ).frame(at: 0.4)
+        for style in BadgeStyle.allCases {
+            let appearance = try unwrap(NSAppearance(named: .darkAqua), "missing dark appearance")
+            let resetBadge = try renderButton(
+                UsageBadgeRenderer.rendering(
+                    for: mixedUsage,
+                    style: style,
+                    appearance: appearance,
+                    now: now,
+                    animationFrame: unknownWindowReset
+                ),
+                appearance: appearance,
+                tint: .white,
+                background: NSColor(calibratedWhite: 0.18, alpha: 1),
+                style: style
+            )
+            check(countPixels(in: resetBadge.bitmap, xRange: 0..<90, matching: .green) > 0,
+                "\(style) acknowledges a confirmed reset without guessing which quota recovered")
         }
 
         // The amber reminder dot is fixed inside the existing button bounds, remains visible
@@ -541,7 +630,8 @@ struct BadgeRenderingAudit {
         weeklyExpiry: TimeInterval = 86_400,
         resetCreditCount: Int? = nil,
         purchasedCreditBalance: String? = nil,
-        primaryUsedPercent: Double? = nil
+        primaryUsedPercent: Double? = nil,
+        weeklyUsedPercent: Double? = nil
     ) throws -> UsageSummary {
         try UsageSummary(response: RateLimitsResponse(
             rateLimits: RateLimitSnapshot(
@@ -552,7 +642,7 @@ struct BadgeRenderingAudit {
                     resetsAt: now.timeIntervalSince1970 + primaryExpiry
                 ),
                 secondary: RateLimitWindow(
-                    usedPercent: Double(100 - weeklyRemaining),
+                    usedPercent: weeklyUsedPercent ?? Double(100 - weeklyRemaining),
                     windowDurationMins: 10_080,
                     resetsAt: now.timeIntervalSince1970 + weeklyExpiry
                 ),

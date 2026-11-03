@@ -43,7 +43,6 @@ TARGET_INPUT_PARENT="${TARGET_APP%/*}"
 [[ -d "$TARGET_INPUT_PARENT" ]] || die "TARGET_APP parent directory does not exist: $TARGET_INPUT_PARENT"
 TARGET_PARENT="$(cd -P "$TARGET_INPUT_PARENT" && pwd)"
 TARGET_APP="$TARGET_PARENT/$TARGET_BASENAME"
-[[ "$TARGET_APP" != "$ROOT_DIR/dist/Codex Usage Status.app" ]] || die "TARGET_APP cannot be the build output bundle."
 [[ ! -L "$TARGET_APP" ]] || die "Refusing to replace a symbolic-link TARGET_APP: $TARGET_APP"
 
 # The legacy bundle is resolved beside the selected destination. This keeps an
@@ -335,6 +334,25 @@ fi
 wait_for_target_process "$TARGET_EXECUTABLE"
 trap - EXIT
 rmdir "$STAGE_ROOT" 2>/dev/null || true
+
+# Keep the newest successful rollback point; failed installs never reach this cleanup.
+latest_backup="${BACKUP_ROOT:-}"
+if [[ -z "$latest_backup" ]]; then
+  for backup in "$TARGET_PARENT"/.CodexUsageStatus-migration-backup-*; do
+    [[ -d "$backup" && ! -L "$backup" ]] || continue
+    backup_name="${backup##*/}"
+    [[ "$backup_name" =~ ^\.CodexUsageStatus-migration-backup-[0-9]{8}T[0-9]{6}Z-[0-9]+(-[0-9]+)?$ ]] || continue
+    latest_backup="$backup"
+  done
+fi
+if [[ -n "$latest_backup" ]]; then
+  for backup in "$TARGET_PARENT"/.CodexUsageStatus-migration-backup-*; do
+    [[ -d "$backup" && ! -L "$backup" && "$backup" != "$latest_backup" ]] || continue
+    backup_name="${backup##*/}"
+    [[ "$backup_name" =~ ^\.CodexUsageStatus-migration-backup-[0-9]{8}T[0-9]{6}Z-[0-9]+(-[0-9]+)?$ ]] || continue
+    rm -rf "$backup" || printf 'Warning: could not remove older app backup %s\n' "$backup" >&2
+  done
+fi
 
 printf 'Installed and started %s\n' "$TARGET_APP"
 if [[ -n "$BACKUP_ROOT" ]]; then

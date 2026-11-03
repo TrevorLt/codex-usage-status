@@ -40,6 +40,13 @@ struct BadgeAnimationAudit {
               "ordinary refresh ends at the fresh readings")
         check(refresh.frame(at: 39).fiveHourPercent == 62,
               "a clock value before the start does not jump ahead")
+        check(!UsageBadgeTransition(
+            fromFiveHour: 62,
+            fromWeekly: 81,
+            toFiveHour: 62,
+            toWeekly: 81,
+            startUptime: 40
+        ).shouldAnimate, "unchanged readings without a confirmed reset do not animate")
 
         let reset = UsageBadgeTransition(
             fromFiveHour: 8,
@@ -54,6 +61,28 @@ struct BadgeAnimationAudit {
         check(resetStart.fiveHourPercent == 8 && resetStart.resetHighlightAlpha == 1,
               "the green reset recovery begins at the previous reading")
         check(resetStart.resetWindows == [.fiveHour], "only the confirmed reset window is highlighted")
+
+        let unchangedConfirmedReset = UsageBadgeTransition(
+            fromFiveHour: 62,
+            fromWeekly: 81,
+            toFiveHour: 62,
+            toWeekly: 81,
+            startUptime: 100,
+            resetWindows: [.fiveHour]
+        )
+        check(unchangedConfirmedReset.shouldAnimate,
+              "a confirmed reset still animates even when neither rounded percentage changes")
+        let confirmedResetWithoutKnownWindow = UsageBadgeTransition(
+            fromFiveHour: 62,
+            fromWeekly: 81,
+            toFiveHour: 62,
+            toWeekly: 81,
+            startUptime: 100,
+            isConfirmedReset: true
+        )
+        check(confirmedResetWithoutKnownWindow.shouldAnimate
+                  && confirmedResetWithoutKnownWindow.frame(at: 100).resetHighlightAlpha == 1,
+              "an accepted reset with unchanged readings still starts its generic success animation")
 
         let resetMiddle = reset.frame(at: 100 + reset.duration / 2)
         check(close(resetMiddle.fiveHourPercent, 88.5) && close(resetMiddle.weeklyPercent, 78.5),

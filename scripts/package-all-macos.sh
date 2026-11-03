@@ -3,17 +3,16 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DIST_DIR="$ROOT_DIR/dist"
-APP_DIR="$DIST_DIR/Codex Usage Status.app"
 VERSION="${VERSION:-0.1.4}"
 ARCHES=("arm64" "x86_64")
 
 rm -f "$DIST_DIR"/CodexUsageStatus-"$VERSION"-macos-*.zip "$DIST_DIR"/CodexUsageStatus-"$VERSION"-macos-*.dmg "$DIST_DIR/SHA256SUMS.txt"
 
 for arch in "${ARCHES[@]}"; do
-  BUILD_ARCH="$arch" VERSION="$VERSION" "$ROOT_DIR/scripts/build-macos-app.sh" >/dev/null
+  APP_DIR="$(BUILD_ARCH="$arch" VERSION="$VERSION" "$ROOT_DIR/scripts/build-macos-app.sh")"
   ZIP_NAME="CodexUsageStatus-${VERSION}-macos-${arch}.zip"
   ditto -c -k --sequesterRsrc --keepParent "$APP_DIR" "$DIST_DIR/$ZIP_NAME"
-  BUILD_ARCH="$arch" VERSION="$VERSION" "$ROOT_DIR/scripts/package-dmg.sh" >/dev/null
+  APP_DIR="$APP_DIR" BUILD_ARCH="$arch" VERSION="$VERSION" "$ROOT_DIR/scripts/package-dmg.sh" >/dev/null
 done
 
 (

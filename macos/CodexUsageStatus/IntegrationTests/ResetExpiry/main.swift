@@ -189,10 +189,10 @@ struct ResetExpiryAudit {
         let chicagoNow = chicago.date(from: DateComponents(year: 2026, month: 10, day: 29, hour: 23, minute: 50))!
         let tomorrow = try makeUsage(
             fiveHourReset: chicagoNow.addingTimeInterval(70 * 60),
-            weeklyReset: chicago.date(from: DateComponents(year: 2026, month: 10, day: 30, hour: 13, minute: 0))
+            weeklyReset: chicago.date(from: DateComponents(year: 2026, month: 11, day: 3, hour: 11, minute: 50))
         )
         let tomorrowTooltip = tomorrow.hoverTooltip(now: chicagoNow, locale: Locale(identifier: "en_US"), timeZone: chicagoTimeZone)
-        check(tomorrowTooltip == "5h · Tomorrow 01:00 · in 1h 10m\n7-day · 10/30 13:00",
+        check(tomorrowTooltip == "5h · Tomorrow 01:00 · in 1h 10m\n7-day · 11/03 11:50 · in 4d 13h",
             "hover uses local 24-hour time, Tomorrow, and a concise relative duration; got \(tomorrowTooltip.debugDescription)")
 
         let exhaustedWithCredits = try makeUsage(
@@ -202,8 +202,37 @@ struct ResetExpiryAudit {
             availableCreditBalance: "1234.56789"
         )
         check(exhaustedWithCredits.hoverTooltip(now: chicagoNow, locale: Locale(identifier: "en_US"), timeZone: chicagoTimeZone)
-            == "5h · Tomorrow 00:50 · in 1h\n7-day · 10/30 23:50\n1234.568 credits available",
+            == "5h · Tomorrow 00:50 · in 1h\n7-day · 10/30 23:50 · in 1d\n1234.568 credits available",
             "hover rounds the purchased-credit balance to three decimal places")
+        let weeklyExhaustedWithCredits = try makeUsage(
+            fiveHourReset: chicagoNow.addingTimeInterval(3_600),
+            weeklyReset: chicagoNow.addingTimeInterval(86_400),
+            fiveHourUsedPercent: 35,
+            weeklyUsedPercent: 100,
+            availableCreditBalance: "1234.56789"
+        )
+        check(weeklyExhaustedWithCredits.hoverTooltip(now: chicagoNow, locale: Locale(identifier: "en_US"), timeZone: chicagoTimeZone)
+            == "5h · Tomorrow 00:50 · in 1h\n7-day · 10/30 23:50 · in 1d\n1234.568 credits available",
+            "hover reports purchased credits when weekly usage is exhausted before 5h usage")
+        let weeklyExhaustedWithoutCredits = try makeUsage(
+            fiveHourReset: chicagoNow.addingTimeInterval(3_600),
+            weeklyReset: chicagoNow.addingTimeInterval(86_400),
+            fiveHourUsedPercent: 35,
+            weeklyUsedPercent: 100
+        )
+        check(!weeklyExhaustedWithoutCredits.hoverTooltip(now: chicagoNow, locale: Locale(identifier: "en_US"), timeZone: chicagoTimeZone)
+            .contains("credits available"),
+            "weekly exhaustion alone does not add a credit message for users without purchased credits")
+        let expiredWeeklyCredits = try makeUsage(
+            fiveHourReset: chicagoNow.addingTimeInterval(3_600),
+            weeklyReset: chicagoNow.addingTimeInterval(-1),
+            fiveHourUsedPercent: 35,
+            weeklyUsedPercent: 100,
+            availableCreditBalance: "1234"
+        )
+        check(!expiredWeeklyCredits.hoverTooltip(now: chicagoNow, locale: Locale(identifier: "en_US"), timeZone: chicagoTimeZone)
+            .contains("credits available"),
+            "an expired weekly reading does not activate purchased-credit mode")
         let tinyCreditBalance = try makeUsage(
             fiveHourReset: chicagoNow.addingTimeInterval(3_600),
             weeklyReset: chicagoNow.addingTimeInterval(86_400),
@@ -220,7 +249,7 @@ struct ResetExpiryAudit {
             availableCreditBalance: "0"
         )
         check(emptyCreditBalance.hoverTooltip(now: chicagoNow, locale: Locale(identifier: "en_US"), timeZone: chicagoTimeZone)
-            == "5h · Tomorrow 00:50 · in 1h\n7-day · 10/30 23:50",
+            == "5h · Tomorrow 00:50 · in 1h\n7-day · 10/30 23:50 · in 1d",
             "an explicit zero balance does not imply credits are available")
         let almostExhaustedHover = try makeUsage(
             fiveHourReset: chicagoNow.addingTimeInterval(3_600),
@@ -327,6 +356,7 @@ struct ResetExpiryAudit {
         fiveHourReset: Date?,
         weeklyReset: Date?,
         fiveHourUsedPercent: Double = 35,
+        weeklyUsedPercent: Double = 12,
         availableCredits: Int? = nil,
         availableCreditBalance: String? = nil
     ) throws -> UsageSummary {
@@ -334,7 +364,7 @@ struct ResetExpiryAudit {
             rateLimits: RateLimitSnapshot(
                 limitId: "codex",
                 primary: RateLimitWindow(usedPercent: fiveHourUsedPercent, windowDurationMins: 300, resetsAt: fiveHourReset?.timeIntervalSince1970),
-                secondary: RateLimitWindow(usedPercent: 12, windowDurationMins: 10_080, resetsAt: weeklyReset?.timeIntervalSince1970),
+                secondary: RateLimitWindow(usedPercent: weeklyUsedPercent, windowDurationMins: 10_080, resetsAt: weeklyReset?.timeIntervalSince1970),
                 planType: "plus",
                 credits: availableCreditBalance.map { RateLimitCreditsSnapshot(hasCredits: true, unlimited: false, balance: $0) }
             ),

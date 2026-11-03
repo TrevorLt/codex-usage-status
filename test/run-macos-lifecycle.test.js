@@ -11,7 +11,7 @@ test('local startup unloads the login job, stops only known copies, verifies the
   const processes = join(root, 'processes');
   const agent = join(root, 'agent');
   const plist = join(root, 'login.plist');
-  const executable = join(root, 'dist/Codex Usage Status.app/Contents/MacOS/CodexUsageStatus');
+  const executable = join(root, 'Library/Caches/dev.local.CodexUsageStatus/build/Codex Usage Status.app/Contents/MacOS/CodexUsageStatus');
   const installed = '/Applications/Codex Usage Status.app/Contents/MacOS/CodexUsageStatus';
   try {
     await mkdir(join(root, 'scripts'));
@@ -72,7 +72,7 @@ test('local startup unloads the login job, stops only known copies, verifies the
       await writeFile(processes, `101 S ${installed}\n202 S /unrelated/CodexUsageStatus\n303 S ${executable}\n-1 S ${executable}\n0 S ${executable}\n`);
       const result = spawnSync('/bin/bash', [join(root, 'scripts/run-macos-app.sh')], {
         encoding: 'utf8', timeout: 10_000,
-        env: { ...process.env, PATH: `${join(root, 'bin')}:${process.env.PATH}`,
+        env: { ...process.env, PATH: `${join(root, 'bin')}:${process.env.PATH}`, HOME: root,
           BASH_ENV: shellSetup, TEST_MODE: mode, TEST_LOG: log, TEST_PROCESSES: processes,
           TEST_AGENT: agent, TEST_PLIST: plist, TEST_EXECUTABLE: executable }
       });

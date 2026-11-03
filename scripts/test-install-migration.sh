@@ -113,12 +113,18 @@ run_installer_failure() {
 case_init loaded-migration
 install_agent_fixture
 printf 'loaded\n' > "$MOCK_LOADED_FILE"
+older_backup="$TARGET_PARENT/.CodexUsageStatus-migration-backup-20200101T000000Z-1"
+mkdir -p "$older_backup"
+install_previous_app "$older_backup/Codex Usage Status.app" target-version.txt
 install_previous_app "$LEGACY_APP" legacy-version.txt
 install_previous_app "$TARGET_APP" target-version.txt
 run_installer_success
 assert_eq "$(<"$TARGET_APP/Contents/Resources/version.txt")" "new-version" "installed bundle content"
 backup_root="$(find "$TARGET_PARENT" -mindepth 1 -maxdepth 1 -type d -name '.CodexUsageStatus-migration-backup-*' -print -quit)"
 [[ -n "$backup_root" ]] || fail "successful migration did not preserve app backups"
+[[ ! -e "$older_backup" ]] || fail "successful migration did not remove the older app backup"
+backup_count="$(find "$TARGET_PARENT" -mindepth 1 -maxdepth 1 -type d -name '.CodexUsageStatus-migration-backup-*' -print | wc -l | tr -d '[:space:]')"
+assert_eq "$backup_count" "1" "successful migration keeps one rollback backup"
 assert_eq "$(<"$backup_root/CodexUsageStatus.app/Contents/Resources/version.txt")" "legacy-version" "legacy app backup"
 assert_eq "$(<"$backup_root/Codex Usage Status.app/Contents/Resources/version.txt")" "previous-target-version" "previous target backup"
 assert_eq "$(plutil -extract ProgramArguments.0 raw -o - "$AGENT_PLIST")" "$TARGET_EXECUTABLE" "migrated LaunchAgent executable"
@@ -161,6 +167,8 @@ assert_file_contains "$MOCK_LOG" "launchctl bootstrap gui/$(id -u) $AGENT_PLIST"
 case_init failed-bootstrap
 install_agent_fixture
 printf 'loaded\n' > "$MOCK_LOADED_FILE"
+older_backup="$TARGET_PARENT/.CodexUsageStatus-migration-backup-20200101T000000Z-1"
+mkdir -p "$older_backup"
 install_previous_app "$TARGET_APP" target-version.txt
 MOCK_BOOTSTRAP_FAIL_ONCE=1
 export MOCK_BOOTSTRAP_FAIL_ONCE
@@ -169,6 +177,7 @@ assert_eq "$(<"$TARGET_APP/Contents/Resources/version.txt")" "previous-target-ve
 assert_eq "$(plutil -extract ProgramArguments.0 raw -o - "$AGENT_PLIST")" "$LEGACY_EXECUTABLE" "LaunchAgent restored after bootstrap failure"
 failed_backup="$(find "$TARGET_PARENT" -path '*/failed-install.app/Contents/Resources/version.txt' -print -quit)"
 assert_eq "$(<"$failed_backup")" "new-version" "failed new app retained for recovery"
+[[ -d "$older_backup" ]] || fail "failed install must preserve existing rollback backups"
 assert_eq "$(<"$MOCK_LOADED_FILE")" "loaded" "prior loaded state restored after bootstrap failure"
 
 case_init fresh-open-failure

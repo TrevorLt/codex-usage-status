@@ -3,8 +3,13 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SWIFT_DIR="$ROOT_DIR/macos/CodexUsageStatus"
-DIST_DIR="$ROOT_DIR/dist"
-APP_DIR="$DIST_DIR/Codex Usage Status.app"
+if [[ "${HOME:-}" != /* || "$HOME" == "/" ]]; then
+  echo "HOME must name a user home directory." >&2
+  exit 1
+fi
+CACHE_DIR="$HOME/Library/Caches/dev.local.CodexUsageStatus"
+BUILD_DIR="$CACHE_DIR/build"
+APP_DIR="$BUILD_DIR/Codex Usage Status.app"
 CONTENTS_DIR="$APP_DIR/Contents"
 MACOS_DIR="$CONTENTS_DIR/MacOS"
 RESOURCES_DIR="$CONTENTS_DIR/Resources"
@@ -58,12 +63,17 @@ if [[ ! -f "$ICON_SOURCE" ]]; then
   exit 1
 fi
 
+[[ ! -L "$CACHE_DIR" && ! -L "$BUILD_DIR" ]] || {
+  echo "Refusing to build through a symbolic-link cache path." >&2
+  exit 1
+}
+mkdir -p "$BUILD_DIR" "$CACHE_DIR/module-cache-$BUILD_ARCH"
 rm -rf "$APP_DIR"
 mkdir -p "$MACOS_DIR"
 swiftc -swift-version 6 -O \
   -sdk "$SDK_PATH" \
   -target "$TRIPLE" \
-  -module-cache-path "$DIST_DIR/module-cache-$BUILD_ARCH" \
+  -module-cache-path "$CACHE_DIR/module-cache-$BUILD_ARCH" \
   "${SWIFT_SOURCES[@]}" \
   -o "$BINARY_PATH"
 

@@ -120,7 +120,7 @@ private final class BadgeAnimationPreviewController: NSObject, NSApplicationDele
         if playbackTimer == nil {
             if timeline.doubleValue >= 100 { timeline.doubleValue = 0 }
             playButton.title = "Pause"
-            let timer = Timer(timeInterval: 1.0 / 30.0, target: self,
+            let timer = Timer(timeInterval: UsageBadgeTransition.frameInterval, target: self,
                               selector: #selector(advancePlayback), userInfo: nil, repeats: true)
             playbackTimer = timer
             RunLoop.main.add(timer, forMode: .common)
@@ -133,7 +133,7 @@ private final class BadgeAnimationPreviewController: NSObject, NSApplicationDele
     @objc private func advancePlayback() {
         let scenario = selectedScenario
         let duration = scenario.transition.duration
-        timeline.doubleValue = min(100, timeline.doubleValue + 100 / (duration * 30))
+        timeline.doubleValue = min(100, timeline.doubleValue + 100 * UsageBadgeTransition.frameInterval / duration)
         renderFrame()
         if timeline.doubleValue >= 100 { stopPlayback() }
     }
@@ -211,6 +211,7 @@ private enum PreviewScenario: CaseIterable {
     case expiryReminder
     case lastKnown
     case purchasedCredits
+    case weeklyExhaustedPurchasedCredits
 
     static let allCases: [PreviewScenario] = [
         .refreshDecrease,
@@ -222,6 +223,7 @@ private enum PreviewScenario: CaseIterable {
         .expiryReminder,
         .lastKnown,
         .purchasedCredits,
+        .weeklyExhaustedPurchasedCredits,
     ]
 
     var title: String {
@@ -231,10 +233,11 @@ private enum PreviewScenario: CaseIterable {
         case .fiveHourReset: "Confirmed 5h reset"
         case .weeklyReset: "Confirmed 7-day reset"
         case .bothWindowsReset: "Both windows reset"
-        case .noConfirmedResetChange: "Reset request · no changed window"
+        case .noConfirmedResetChange: "Confirmed reset · unchanged readings"
         case .expiryReminder: "Reset expiring soon"
         case .lastKnown: "Last-known readings"
         case .purchasedCredits: "5H exhausted · purchased credits"
+        case .weeklyExhaustedPurchasedCredits: "7-day exhausted · purchased credits"
         }
     }
 
@@ -245,16 +248,17 @@ private enum PreviewScenario: CaseIterable {
         case .fiveHourReset: "Only the 5h window is confirmed to recover."
         case .weeklyReset: "Only the 7-day window is confirmed to recover."
         case .bothWindowsReset: "Both windows are confirmed to recover."
-        case .noConfirmedResetChange: "The request alone does not animate green without changed fresh readings."
+        case .noConfirmedResetChange: "Codex confirms the reset but no window change is identifiable; a brief outline acknowledges success."
         case .expiryReminder: "The amber dot signals an earned reset that expires within 72 hours."
         case .lastKnown: "A small independent marker preserves the normal reading size."
         case .purchasedCredits: "Static state: at 100% usage, the badge shows purchased credits; hover shows the precise balance."
+        case .weeklyExhaustedPurchasedCredits: "Static state: the weekly quota is exhausted while the 5h quota remains; purchased credits replace the left reading."
         }
     }
 
     var isStale: Bool { self == .lastKnown }
     var showExpiryReminder: Bool { self == .expiryReminder }
-    var showsPurchasedCredits: Bool { self == .purchasedCredits }
+    var showsPurchasedCredits: Bool { self == .purchasedCredits || self == .weeklyExhaustedPurchasedCredits }
 
     var fromFiveHour: Double {
         switch self {
@@ -267,6 +271,7 @@ private enum PreviewScenario: CaseIterable {
         case .expiryReminder: 62
         case .lastKnown: 62
         case .purchasedCredits: 0
+        case .weeklyExhaustedPurchasedCredits: 68
         }
     }
 
@@ -281,6 +286,7 @@ private enum PreviewScenario: CaseIterable {
         case .expiryReminder: 81
         case .lastKnown: 88
         case .purchasedCredits: 68
+        case .weeklyExhaustedPurchasedCredits: 0
         }
     }
 
@@ -295,6 +301,7 @@ private enum PreviewScenario: CaseIterable {
         case .expiryReminder: 62
         case .lastKnown: 62
         case .purchasedCredits: 0
+        case .weeklyExhaustedPurchasedCredits: 68
         }
     }
 
@@ -309,6 +316,7 @@ private enum PreviewScenario: CaseIterable {
         case .expiryReminder: 81
         case .lastKnown: 88
         case .purchasedCredits: 68
+        case .weeklyExhaustedPurchasedCredits: 0
         }
     }
 
@@ -328,7 +336,8 @@ private enum PreviewScenario: CaseIterable {
             toFiveHour: Double(toFiveHour),
             toWeekly: Double(toWeekly),
             startUptime: 0,
-            resetWindows: resetWindows
+            resetWindows: resetWindows,
+            isConfirmedReset: self == .noConfirmedResetChange
         )
     }
 }

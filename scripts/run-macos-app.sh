@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-APP_DIR="$ROOT_DIR/dist/Codex Usage Status.app"
+APP_DIR="${HOME:?HOME must be set}/Library/Caches/dev.local.CodexUsageStatus/build/Codex Usage Status.app"
 APP_BINARY="$APP_DIR/Contents/MacOS/CodexUsageStatus"
 NATIVE_ARCH="$(uname -m)"
 if [[ "$(sysctl -n hw.optional.arm64 2>/dev/null || true)" == 1 ]]; then
@@ -10,7 +10,8 @@ if [[ "$(sysctl -n hw.optional.arm64 2>/dev/null || true)" == 1 ]]; then
 fi
 
 if ! lipo -verify_arch "$NATIVE_ARCH" "$APP_BINARY" >/dev/null 2>&1; then
-  BUILD_ARCH="$NATIVE_ARCH" "$ROOT_DIR/scripts/build-macos-app.sh" >/dev/null
+  APP_DIR="$(BUILD_ARCH="$NATIVE_ARCH" "$ROOT_DIR/scripts/build-macos-app.sh")"
+  APP_BINARY="$APP_DIR/Contents/MacOS/CodexUsageStatus"
 fi
 lipo -verify_arch "$NATIVE_ARCH" "$APP_BINARY" >/dev/null 2>&1 || {
   echo "App does not contain native $NATIVE_ARCH code; leaving the running app untouched." >&2
