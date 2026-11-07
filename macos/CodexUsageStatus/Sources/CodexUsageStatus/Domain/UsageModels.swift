@@ -1,5 +1,6 @@
 import Foundation
 import CryptoKit
+import Darwin
 
 enum UsageWindowKind: Hashable, Sendable {
     case fiveHour
@@ -53,19 +54,25 @@ struct RateLimitResetCredit: Decodable, Sendable, Equatable {
 /// Expiration timestamps that About can show for each currently available reset.
 /// Missing detail rows remain explicit so the UI never invents an expiration.
 struct ResetCreditExpiryDetails: Sendable {
+    private static let maximumDisplayedExpirations = 25
+
     let expirations: [Date?]
+    let omittedCount: Int
 
     init(credits summary: RateLimitResetCredits?) {
         guard let summary else {
             expirations = []
+            omittedCount = 0
             return
         }
 
         let count = max(0, summary.availableCount)
         guard count > 0 else {
             expirations = []
+            omittedCount = 0
             return
         }
+        let displayedCount = min(count, Self.maximumDisplayedExpirations)
 
         let knownExpirations = (summary.credits ?? [])
             .filter { $0.resetType == "codexRateLimits" && $0.status == "available" }
@@ -74,18 +81,24 @@ struct ResetCreditExpiryDetails: Sendable {
                 return Date(timeIntervalSince1970: timestamp)
             }
             .sorted()
-            .prefix(count)
+            .prefix(displayedCount)
 
         let known = Array(knownExpirations)
         expirations = known.map(Optional.some)
-            + Array(repeating: nil, count: max(0, count - known.count))
+            + Array(repeating: nil, count: displayedCount - known.count)
+        omittedCount = count - displayedCount
     }
 
     func aboutLines(dateFormatter: DateFormatter) -> [String] {
-        expirations.enumerated().map { index, expiry in
+        var lines = expirations.enumerated().map { index, expiry in
             let value = expiry.map { dateFormatter.string(from: $0) } ?? "expiration time unavailable"
             return "Reset \(index + 1): \(value)"
         }
+        if omittedCount > 0 {
+            let noun = omittedCount == 1 ? "reset" : "resets"
+            lines.append("\(omittedCount) more \(noun) not listed")
+        }
+        return lines
     }
 }
 
@@ -296,21 +309,48 @@ struct PendingResetConsumptionAttempt: Codable, Sendable, Equatable {
 @MainActor
 final class ResetConsumptionAttemptStore {
     private static let defaultsKey = "PendingResetConsumptionAttempt.v1"
+    private static let fileName = "pending-reset-consumption.json"
+    private static let unreadableAttempt = PendingResetConsumptionAttempt(
+        creditID: nil,
+        idempotencyKey: "",
+        accountFingerprint: nil
+    )
     private let defaults: UserDefaults
+    private let durableFileURL: URL?
+    private let requiresDurableFile: Bool
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
+        requiresDurableFile = defaults === UserDefaults.standard
+        durableFileURL = requiresDurableFile ? Self.makeDurableFileURL() : nil
     }
 
     var pending: PendingResetConsumptionAttempt? {
-        guard let data = defaults.data(forKey: Self.defaultsKey) else { return nil }
-        return try? JSONDecoder().decode(PendingResetConsumptionAttempt.self, from: data)
+        if requiresDurableFile, let durableFileURL,
+           FileManager.default.fileExists(atPath: durableFileURL.path) {
+            guard let data = try? Data(contentsOf: durableFileURL),
+                  let record = try? JSONDecoder().decode(DurableRecord.self, from: data) else {
+                return Self.unreadableAttempt
+            }
+            return record.attempt
+        }
+        guard defaults.object(forKey: Self.defaultsKey) != nil else { return nil }
+        guard let data = defaults.data(forKey: Self.defaultsKey),
+              let attempt = try? JSONDecoder().decode(PendingResetConsumptionAttempt.self, from: data) else {
+            return Self.unreadableAttempt
+        }
+        return attempt
     }
 
     func begin(creditID: String?, accountID: String) -> PendingResetConsumptionAttempt? {
         guard !accountID.isEmpty else { return nil }
-        if let pending {
+        switch savedAttempt() {
+        case .attempt(let pending):
             return pending.belongs(to: accountID) ? pending : nil
+        case .unavailable:
+            return nil
+        case .missing:
+            break
         }
 
         let pending = PendingResetConsumptionAttempt(
@@ -318,14 +358,113 @@ final class ResetConsumptionAttemptStore {
             idempotencyKey: UUID().uuidString,
             accountFingerprint: ResetExpiryDismissalStore.fingerprint(for: accountID)
         )
-        if let data = try? JSONEncoder().encode(pending) {
-            defaults.set(data, forKey: Self.defaultsKey)
-        }
-        return pending
+        return persist(pending) ? pending : nil
     }
 
-    func clear() {
+    @discardableResult
+    func clear() -> Bool {
+        guard requiresDurableFile else {
+            defaults.removeObject(forKey: Self.defaultsKey)
+            return true
+        }
+        // Keep a durable empty record so an old defaults value cannot reappear after a crash.
+        guard writeDurableRecord(nil) else { return false }
         defaults.removeObject(forKey: Self.defaultsKey)
+        return true
+    }
+
+    private struct DurableRecord: Codable {
+        let attempt: PendingResetConsumptionAttempt?
+    }
+
+    private enum SavedAttempt {
+        case missing
+        case attempt(PendingResetConsumptionAttempt)
+        case unavailable
+    }
+
+    private func savedAttempt() -> SavedAttempt {
+        if requiresDurableFile, let durableFileURL,
+           FileManager.default.fileExists(atPath: durableFileURL.path) {
+            guard let data = try? Data(contentsOf: durableFileURL),
+                  let record = try? JSONDecoder().decode(DurableRecord.self, from: data) else {
+                return .unavailable
+            }
+            return record.attempt.map(SavedAttempt.attempt) ?? .missing
+        }
+
+        guard defaults.object(forKey: Self.defaultsKey) != nil else { return .missing }
+        guard let data = defaults.data(forKey: Self.defaultsKey),
+              let attempt = try? JSONDecoder().decode(PendingResetConsumptionAttempt.self, from: data) else {
+            return .unavailable
+        }
+        if requiresDurableFile {
+            guard persist(attempt) else { return .unavailable }
+        }
+        return .attempt(attempt)
+    }
+
+    private func persist(_ attempt: PendingResetConsumptionAttempt) -> Bool {
+        guard requiresDurableFile else {
+            guard let data = try? JSONEncoder().encode(attempt) else { return false }
+            defaults.set(data, forKey: Self.defaultsKey)
+            return true
+        }
+        return writeDurableRecord(attempt)
+    }
+
+    private func writeDurableRecord(_ attempt: PendingResetConsumptionAttempt?) -> Bool {
+        guard let durableFileURL,
+              let data = try? JSONEncoder().encode(DurableRecord(attempt: attempt)) else { return false }
+        do {
+            try data.write(to: durableFileURL, options: .atomic)
+        } catch {
+            return false
+        }
+        guard Self.synchronizeFileAndDirectory(durableFileURL) else { return false }
+        if attempt != nil { defaults.removeObject(forKey: Self.defaultsKey) }
+        return true
+    }
+
+    private static func makeDurableFileURL() -> URL? {
+        guard let applicationSupport = try? FileManager.default.url(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask,
+            appropriateFor: nil,
+            create: true
+        ) else { return nil }
+        let directory = applicationSupport.appendingPathComponent("Codex Usage Status", isDirectory: true)
+        do {
+            try FileManager.default.createDirectory(
+                at: directory,
+                withIntermediateDirectories: true,
+                attributes: [.posixPermissions: 0o700]
+            )
+        } catch {
+            return nil
+        }
+        return directory.appendingPathComponent(fileName)
+    }
+
+    private static func synchronizeFileAndDirectory(_ fileURL: URL) -> Bool {
+        let fileDescriptor = fileURL.path.withCString {
+            Darwin.open($0, O_WRONLY | O_CLOEXEC | O_NOFOLLOW)
+        }
+        guard fileDescriptor >= 0 else { return false }
+        let fileSynced = Darwin.fsync(fileDescriptor) == 0
+        let fileClosed = Darwin.close(fileDescriptor) == 0
+        guard fileSynced, fileClosed else { return false }
+        return synchronizeDirectory(fileURL.deletingLastPathComponent())
+    }
+
+    private static func synchronizeDirectory(_ directoryURL: URL) -> Bool {
+        let directoryDescriptor = directoryURL.path.withCString {
+            Darwin.open($0, O_RDONLY | O_CLOEXEC | O_DIRECTORY)
+        }
+        guard directoryDescriptor >= 0 else { return false }
+        let directorySynced = Darwin.fsync(directoryDescriptor) == 0
+        let directoryClosed = Darwin.close(directoryDescriptor) == 0
+        return directorySynced && directoryClosed
     }
 }
 

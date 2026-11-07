@@ -12,9 +12,9 @@ The app reads the structured usage response returned by the local Codex app-serv
 
 Codex itself owns authentication. This companion app receives the usage percentages and reset times that Codex returns through that local interface.
 
-If you choose **Use reset** and confirm, the app also sends `account/rateLimitResetCredit/consume` through the local app-server. It always names a specific credit returned for the current account and prefers the earliest known expiry. If no credit ID is available, the app directs you to Codex instead of consuming a server-selected credit. A pending idempotency key and selected opaque credit ID can be stored locally until the app confirms the result, so retrying an uncertain request does not consume another reset.
+If you choose **Use reset** and confirm, the app also sends `account/rateLimitResetCredit/consume` through the local app-server. It always names a specific credit returned for the current account and prefers the earliest known expiry. If no credit ID is available, the app directs you to Codex instead of consuming a server-selected credit. A pending idempotency key, selected opaque credit ID, and hashed account identifier are stored under `~/Library/Application Support/Codex Usage Status/` until the app confirms the result or you explicitly clear an unsafe saved request, so retrying an uncertain request does not consume another reset.
 
-The saved request also includes a SHA-256 hash of the account identifier, so it cannot be retried on a different account. The raw account identifier is not saved. Older unbound requests are preserved until you explicitly clear them after checking their outcome in Codex.
+The saved request includes a SHA-256 hash of the account identifier, so it cannot be retried on a different account. The raw account identifier is not saved. Older unbound requests are preserved until you explicitly clear them after checking their outcome in Codex.
 
 ## What the app does not read
 

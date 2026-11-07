@@ -335,13 +335,14 @@ wait_for_target_process "$TARGET_EXECUTABLE"
 trap - EXIT
 rmdir "$STAGE_ROOT" 2>/dev/null || true
 
-# Keep the newest successful rollback point; failed installs never reach this cleanup.
+# Keep the newest rollback point for this target; failed installs never reach this cleanup.
 latest_backup="${BACKUP_ROOT:-}"
 if [[ -z "$latest_backup" ]]; then
   for backup in "$TARGET_PARENT"/.CodexUsageStatus-migration-backup-*; do
     [[ -d "$backup" && ! -L "$backup" ]] || continue
     backup_name="${backup##*/}"
     [[ "$backup_name" =~ ^\.CodexUsageStatus-migration-backup-[0-9]{8}T[0-9]{6}Z-[0-9]+(-[0-9]+)?$ ]] || continue
+    app_is_ours "$backup/$TARGET_BASENAME" || continue
     latest_backup="$backup"
   done
 fi
@@ -350,6 +351,7 @@ if [[ -n "$latest_backup" ]]; then
     [[ -d "$backup" && ! -L "$backup" && "$backup" != "$latest_backup" ]] || continue
     backup_name="${backup##*/}"
     [[ "$backup_name" =~ ^\.CodexUsageStatus-migration-backup-[0-9]{8}T[0-9]{6}Z-[0-9]+(-[0-9]+)?$ ]] || continue
+    app_is_ours "$backup/$TARGET_BASENAME" || continue
     rm -rf "$backup" || printf 'Warning: could not remove older app backup %s\n' "$backup" >&2
   done
 fi

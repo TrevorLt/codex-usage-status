@@ -92,7 +92,7 @@ The app is menu-bar-only and does not appear in the Dock. The DMG uses the proje
 
 Click the badge to access:
 
-- `Refresh` — request an immediate update, subject to the safety floor.
+- `Refresh` — request a manual update; manual requests bypass the automatic 30-second floor.
 - `Use one reset…` — choose **Use reset** to consume a specific credit returned for the current account, preferring the earliest known expiry. If Codex provides no credit ID, use the reset in Codex instead.
 - `Check previous reset…` — retry an uncertain reset for the same account, even when no credits remain. A confirmed redemption needs only a usage refresh if its follow-up read fails.
 - `Display Style` — choose `Double Ring` or `Large Readout`.
@@ -129,7 +129,7 @@ If the badge shows `?`, hover it or open `About` first; the app reports a safe f
 The app is intentionally narrow:
 
 - It reads usage through the local Codex app-server method `account/rateLimits/read`.
-- It calls `account/rateLimitResetCredit/consume` only after you explicitly confirm **Use reset**. A pending idempotency key and selected opaque credit ID may be kept locally until the result is confirmed, to prevent a retry from consuming another reset.
+- It calls `account/rateLimitResetCredit/consume` only after you explicitly confirm **Use reset**. A pending idempotency key, selected opaque credit ID, and hashed account ID are saved under `~/Library/Application Support/Codex Usage Status/` until the result is confirmed or you explicitly clear an unsafe saved request, to prevent a retry from consuming another reset.
 - Saved reset requests include a hashed account identifier and a specific credit ID. Requests without either binding cannot be retried here; check their status in Codex before explicitly clearing them.
 - It does not read `~/.codex/auth.json`.
 - It does not read or store tokens, cookies, sessions, OAuth credentials, refresh tokens, API keys, passwords, browser storage, or chat history.

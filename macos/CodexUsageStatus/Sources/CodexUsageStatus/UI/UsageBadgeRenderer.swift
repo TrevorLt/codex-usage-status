@@ -91,11 +91,11 @@ enum UsageBadgeRenderer {
         guard credits.hasCredits else { return nil }
         guard let balance = credits.decimalBalance else { return "?" }
         guard balance > 0 else { return nil }
+        guard balance >= 1 else { return "<1" }
 
         var unrounded = balance
         var rounded = Decimal()
         NSDecimalRound(&rounded, &unrounded, 0, .plain)
-        guard rounded > 0 else { return "<1" }
         return compactCreditCount(NSDecimalNumber(decimal: rounded).stringValue)
     }
 

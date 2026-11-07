@@ -341,7 +341,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 alert.addButton(withTitle: "Keep saved request")
                 alert.addButton(withTitle: "Clear saved request")
                 if presentResetAlert(alert) == .alertSecondButtonReturn {
-                    resetConsumptionAttemptStore.clear()
+                    guard resetConsumptionAttemptStore.clear() else {
+                        showResetNotice(
+                            title: "Could not clear saved reset",
+                            message: "The app could not safely update its saved retry record. No new reset will be sent."
+                        )
+                        return
+                    }
                     renderCurrentBadge()
                 }
             }
@@ -384,8 +390,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     private func consumeReset(creditID: String, accountID: String) {
         guard !isConsumingReset, !isRefreshing, !isSleeping,
-              lastUsage?.accountID == accountID,
-              let attempt = resetConsumptionAttemptStore.begin(creditID: creditID, accountID: accountID) else { return }
+              lastUsage?.accountID == accountID else { return }
+        guard let attempt = resetConsumptionAttemptStore.begin(creditID: creditID, accountID: accountID) else {
+            showResetNotice(
+                title: "Reset not started",
+                message: "The app could not safely save retry protection for this reset. No request was sent to Codex."
+            )
+            return
+        }
         isConsumingReset = true
         timer?.invalidate()
         nextRefreshAt = nil
