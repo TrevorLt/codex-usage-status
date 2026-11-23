@@ -33,6 +33,14 @@ struct BadgeRenderingAudit {
         let creditsForEmptyWindow = try makeUsage(primaryRemaining: 0, weeklyRemaining: 88, now: now, purchasedCreditBalance: "1234")
         check(UsageBadgeRenderer.creditBalanceBadgeText(for: creditsForEmptyWindow, now: now) == "1234",
             "an exhausted 5h window shows the exact available credit count up to four digits")
+        let creditLabelBitmap = try rasterize(UsageBadgeRenderer.rendering(
+            for: creditsForEmptyWindow,
+            style: .doubleRing,
+            appearance: try unwrap(NSAppearance(named: .darkAqua), "missing dark appearance"),
+            now: now
+        ).image)
+        check(countOpaquePixels(in: creditLabelBitmap, xRange: 10..<17, yRange: 3..<21) > 0,
+            "the Double Ring credit C sits closer to its ring")
         let creditsForEmptyWeek = try makeUsage(primaryRemaining: 42, weeklyRemaining: 0, now: now, purchasedCreditBalance: "1234")
         check(UsageBadgeRenderer.creditBalanceBadgeText(for: creditsForEmptyWeek, now: now) == "1234",
             "an exhausted weekly window shows credits even while the 5h window has quota left")

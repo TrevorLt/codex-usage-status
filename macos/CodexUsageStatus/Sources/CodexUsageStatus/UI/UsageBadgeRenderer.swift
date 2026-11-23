@@ -384,7 +384,7 @@ enum UsageBadgeRenderer {
 
                 drawLabeledRing(
                     value: left,
-                    labelRect: NSRect(x: 1, y: 4.0, width: 11, height: 16),
+                    labelRect: NSRect(x: 1, y: 3.0, width: 11, height: 18),
                     ringCenter: NSPoint(x: 29, y: 12),
                     foregroundColor: foregroundColor,
                     forcedColor: forcedColor,
@@ -393,7 +393,7 @@ enum UsageBadgeRenderer {
                 )
                 drawLabeledRing(
                     value: right,
-                    labelRect: NSRect(x: 50, y: 4.0, width: 11, height: 16),
+                    labelRect: NSRect(x: 50, y: 3.0, width: 11, height: 18),
                     ringCenter: NSPoint(x: 75, y: 12),
                     foregroundColor: foregroundColor,
                     forcedColor: forcedColor,
@@ -425,9 +425,9 @@ enum UsageBadgeRenderer {
 
                 drawReadoutGroup(
                     value: left,
-                    labelRect: NSRect(x: 1, y: 4.0, width: 11, height: 16),
-                    numberRect: NSRect(x: 15, y: 3.4, width: 25, height: 17),
-                    lineRect: NSRect(x: 1, y: 2.4, width: 36, height: 1.5),
+                    labelRect: NSRect(x: 1, y: 6.0, width: 11, height: 11),
+                    numberRect: NSRect(x: 14, y: 3.4, width: 24, height: 17),
+                    lineRect: NSRect(x: 1, y: 2.4, width: 37, height: 1.5),
                     foregroundColor: foregroundColor,
                     forcedColor: forcedColor,
                     isStale: isStale,
@@ -435,9 +435,9 @@ enum UsageBadgeRenderer {
                 )
                 drawReadoutGroup(
                     value: right,
-                    labelRect: NSRect(x: 49, y: 4.0, width: 11, height: 16),
-                    numberRect: NSRect(x: 61, y: 3.4, width: 25, height: 17),
-                    lineRect: NSRect(x: 48, y: 2.4, width: 36, height: 1.5),
+                    labelRect: NSRect(x: 48, y: 6.0, width: 11, height: 11),
+                    numberRect: NSRect(x: 61, y: 3.4, width: 24, height: 17),
+                    lineRect: NSRect(x: 48, y: 2.4, width: 37, height: 1.5),
                     foregroundColor: foregroundColor,
                     forcedColor: forcedColor,
                     isStale: isStale,
@@ -561,7 +561,15 @@ enum UsageBadgeRenderer {
             return
         }
 
-        drawStackedLabel(value.label, in: labelRect, alpha: 0.62, foregroundColor: foregroundColor)
+        drawString(
+            value.label.uppercased(),
+            in: labelRect,
+            fontSize: 7.4,
+            weight: .bold,
+            alpha: 0.62,
+            alignment: .center,
+            foregroundColor: foregroundColor
+        )
         drawString(
             value.centerText,
             in: numberRect,
@@ -612,10 +620,17 @@ enum UsageBadgeRenderer {
     }
 
     private static func drawSideLabel(_ text: String, in rect: NSRect, foregroundColor: NSColor) {
-        drawStackedLabel(text, in: rect, alpha: 0.78, foregroundColor: foregroundColor)
+        let labelRect = text == "C" ? rect.offsetBy(dx: 3, dy: 0) : rect
+        drawStackedLabel(text, in: labelRect, alpha: 0.78, foregroundColor: foregroundColor, uniformFontSize: 9)
     }
 
-    private static func drawStackedLabel(_ text: String, in rect: NSRect, alpha: CGFloat, foregroundColor: NSColor) {
+    private static func drawStackedLabel(
+        _ text: String,
+        in rect: NSRect,
+        alpha: CGFloat,
+        foregroundColor: NSColor,
+        uniformFontSize: CGFloat? = nil
+    ) {
         let lines: [String]
         let normalized = text.uppercased()
         if normalized.count == 2 {
@@ -624,8 +639,8 @@ enum UsageBadgeRenderer {
             lines = [normalized]
         }
 
-        let fontSize: CGFloat = lines.count > 1 ? 7.4 : 10.0
-        let lineHeight: CGFloat = lines.count > 1 ? 7.5 : 10.8
+        let fontSize = uniformFontSize ?? (lines.count > 1 ? 7.4 : 10.0)
+        let lineHeight = uniformFontSize ?? (lines.count > 1 ? 7.5 : 10.8)
         let totalHeight = CGFloat(lines.count) * lineHeight
         let startY = rect.midY + totalHeight / 2 - lineHeight
 
