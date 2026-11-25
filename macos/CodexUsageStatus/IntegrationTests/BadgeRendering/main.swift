@@ -33,14 +33,247 @@ struct BadgeRenderingAudit {
         let creditsForEmptyWindow = try makeUsage(primaryRemaining: 0, weeklyRemaining: 88, now: now, purchasedCreditBalance: "1234")
         check(UsageBadgeRenderer.creditBalanceBadgeText(for: creditsForEmptyWindow, now: now) == "1234",
             "an exhausted 5h window shows the exact available credit count up to four digits")
-        let creditLabelBitmap = try rasterize(UsageBadgeRenderer.rendering(
-            for: creditsForEmptyWindow,
+        let darkAppearance = try unwrap(NSAppearance(named: .darkAqua), "missing dark appearance")
+        let quotaBadge = UsageBadgeRenderer.rendering(
+            for: try makeUsage(primaryRemaining: 50, weeklyRemaining: 46, now: now),
             style: .doubleRing,
-            appearance: try unwrap(NSAppearance(named: .darkAqua), "missing dark appearance"),
+            appearance: darkAppearance,
             now: now
-        ).image)
-        check(countOpaquePixels(in: creditLabelBitmap, xRange: 10..<17, yRange: 3..<21) > 0,
-            "the Double Ring credit C sits closer to its ring")
+        )
+        let creditBadge = UsageBadgeRenderer.rendering(
+            for: try makeUsage(primaryRemaining: 0, weeklyRemaining: 88, now: now, purchasedCreditBalance: "1"),
+            style: .doubleRing,
+            appearance: darkAppearance,
+            now: now
+        )
+        let quotaBitmap = try rasterize(quotaBadge.image)
+        let creditBitmap = try rasterize(creditBadge.image)
+        for bitmap in [quotaBitmap, try rasterize(quotaBadge.image, scale: 2)] {
+            check(countOpaquePixels(in: bitmap, xRange: 23..<35, yRange: 8..<16) > 0,
+                "synthetic 5h value 50 is visible inside the left ring")
+            check(countOpaquePixels(in: bitmap, xRange: 69..<81, yRange: 8..<16) > 0,
+                "synthetic weekly value 46 is visible inside the right ring")
+        }
+        let fullQuotaBadge = UsageBadgeRenderer.rendering(
+            for: try makeUsage(primaryRemaining: 100, weeklyRemaining: 100, now: now),
+            style: .doubleRing,
+            appearance: darkAppearance,
+            now: now
+        )
+        for bitmap in [try rasterize(fullQuotaBadge.image), try rasterize(fullQuotaBadge.image, scale: 2)] {
+            check(countOpaquePixels(in: bitmap, xRange: 23..<35, yRange: 8..<16) > 0,
+                "synthetic 5h value 100 is visible inside the left ring")
+            check(countOpaquePixels(in: bitmap, xRange: 69..<81, yRange: 8..<16) > 0,
+                "synthetic weekly value 100 is visible inside the right ring")
+        }
+        func verifyDoubleRingTextCenter(
+            _ image: NSImage,
+            description: String,
+            text: String,
+            ringCenterX: CGFloat,
+            expectedCenterX: CGFloat,
+            checkTrackOnlyClearance: Bool = false
+        ) throws {
+            let fontSize = UsageBadgeRenderer.doubleRingFontSize(for: text)
+            let font = NSFont.monospacedDigitSystemFont(ofSize: fontSize, weight: .bold)
+            let textWidth = (text as NSString).size(withAttributes: [.font: font]).width
+            check(textWidth <= 17.11, "Double Ring \(description) fits its 17pt text width (\(textWidth)pt)")
+            for scale in [1, 2] {
+                let bitmap = try rasterize(image, scale: scale)
+                let scaleX = CGFloat(bitmap.pixelsWide) / 86
+                let scaleY = CGFloat(bitmap.pixelsHigh) / 24
+                let minX = Int(((ringCenterX - 9) * scaleX).rounded(.down))
+                let maxX = Int(((ringCenterX + 9) * scaleX).rounded(.up))
+                let minY = Int((4 * scaleY).rounded(.down))
+                let maxY = Int((20 * scaleY).rounded(.up))
+                var minInkX = Int.max
+                var maxInkX = Int.min
+                var minInkY = Int.max
+                var maxInkY = Int.min
+                var inkWeight = 0.0
+                var weightedInkX = 0.0
+                for y in minY..<maxY {
+                    for x in minX..<maxX {
+                        let pointX = (CGFloat(x) + 0.5) / scaleX
+                        let pointY = (CGFloat(y) + 0.5) / scaleY
+                        let dx = pointX - ringCenterX
+                        let dy = pointY - 12
+                        let alpha = Double(bitmap.colorAt(x: x, y: y)?.alphaComponent ?? 0)
+                        guard dx * dx + dy * dy < 64,
+                              alpha > 0.05 else { continue }
+                        minInkX = min(minInkX, x)
+                        maxInkX = max(maxInkX, x)
+                        minInkY = min(minInkY, y)
+                        maxInkY = max(maxInkY, y)
+                        inkWeight += alpha
+                        weightedInkX += Double(pointX) * alpha
+                    }
+                }
+                check(minInkX != Int.max, "synthetic \(description) text is visible at \(scale)x")
+                let inkBounds = (minX: minInkX, maxX: maxInkX, minY: minInkY, maxY: maxInkY)
+                let centerX = pixelCenterX(inkBounds) / Double(scaleX)
+                let centerY = pixelCenterY(inkBounds) / Double(scaleY)
+                let horizontalTolerance = scale == 1 ? 0.5 : 0.4
+                let verticalTolerance = text.count <= 2 ? (scale == 1 ? 0.5 : 0.25) : 0.5
+                let expectedCenterY = 12.0
+                check(abs(centerX - Double(expectedCenterX)) <= horizontalTolerance,
+                    "Double Ring \(description) ink is horizontally centered at \(scale)x (center \(centerX)pt, target \(expectedCenterX)pt)")
+                check(abs(centerY - expectedCenterY) <= verticalTolerance,
+                    "Double Ring \(description) ink matches its calibrated vertical center at \(scale)x (center \(centerY)pt, target \(expectedCenterY)pt)")
+                if checkTrackOnlyClearance {
+                    var textTouchesRing = false
+                    for y in max(0, minY - Int(2 * scaleY))..<min(bitmap.pixelsHigh, maxY + Int(2 * scaleY)) {
+                        for x in max(0, Int(((ringCenterX - 11) * scaleX).rounded(.down)))..<min(bitmap.pixelsWide, Int(((ringCenterX + 11) * scaleX).rounded(.up))) {
+                            let pointX = (CGFloat(x) + 0.5) / scaleX
+                            let pointY = (CGFloat(y) + 0.5) / scaleY
+                            let dx = pointX - ringCenterX
+                            let dy = pointY - 12
+                            let radiusSquared = dx * dx + dy * dy
+                            let alpha = bitmap.colorAt(x: x, y: y)?.alphaComponent ?? 0
+                            if radiusSquared >= 8.575 * 8.575,
+                               radiusSquared <= 10.825 * 10.825,
+                               alpha > 0.75 {
+                                textTouchesRing = true
+                            }
+                        }
+                    }
+                    check(!textTouchesRing,
+                        "Double Ring \(description) glyph ink stays inside the credit ring track at \(scale)x")
+                }
+                if text == "164", scale == 2 {
+                    let inkCenterX = weightedInkX / inkWeight
+                    check(abs(inkCenterX - Double(ringCenterX)) <= 0.22,
+                        "Double Ring \(description) visual ink mass is optically centered (center \(inkCenterX)pt, target \(ringCenterX)pt)")
+                }
+            }
+        }
+        let quotaSamples = [(0, 100), (1, 50), (9, 99), (10, 1), (50, 10), (99, 9), (100, 0)]
+        for (fiveHour, weekly) in quotaSamples {
+            let usage = try makeUsage(primaryRemaining: fiveHour, weeklyRemaining: weekly, now: now)
+            for (appearanceName, _, _, appearanceLabel) in appearances {
+                let appearance = try unwrap(NSAppearance(named: appearanceName), "missing \(appearanceLabel) appearance")
+                let image = UsageBadgeRenderer.rendering(for: usage, style: .doubleRing, appearance: appearance, now: now).image
+                let expectedLeftX = 29 + UsageBadgeRenderer.doubleRingTextOpticalOffset(for: String(fiveHour))
+                let expectedRightX = 75 + UsageBadgeRenderer.doubleRingTextOpticalOffset(for: String(weekly))
+                try verifyDoubleRingTextCenter(image, description: "quota \(fiveHour)/\(weekly) left", text: String(fiveHour), ringCenterX: 29, expectedCenterX: expectedLeftX)
+                try verifyDoubleRingTextCenter(image, description: "quota \(fiveHour)/\(weekly) right", text: String(weekly), ringCenterX: 75, expectedCenterX: expectedRightX)
+            }
+        }
+
+        let creditSamples: [(String, String)] = [
+            ("0.3", "<1"),
+            ("1", "1"),
+            ("12", "12"),
+            ("100", "100"),
+            ("164", "164"),
+            ("218", "218"),
+            ("1234", "1234"),
+            ("12345", "12K"),
+            ("123456", "123K"),
+            ("1234567", "1.2M"),
+            ("9223372036854775807", "9.2E"),
+            ("12abc", "?"),
+        ]
+        check(UsageBadgeRenderer.doubleRingFontSize(for: "99") > UsageBadgeRenderer.doubleRingFontSize(for: "100"),
+            "three-digit quota values step down slightly from two-digit values")
+        check(UsageBadgeRenderer.doubleRingFontSize(for: "100") > UsageBadgeRenderer.doubleRingFontSize(for: "1234"),
+            "four-digit credit values scale down to preserve breathing room")
+        check(UsageBadgeRenderer.doubleRingFontSize(for: "1234") > 5.8,
+            "four-digit credit values remain comfortably legible")
+        for (balance, expectedText) in creditSamples {
+            let usage = try makeUsage(primaryRemaining: 0, weeklyRemaining: 88, now: now, purchasedCreditBalance: balance)
+            let text = UsageBadgeRenderer.creditBalanceBadgeText(for: usage, now: now)
+            check(text == expectedText, "credit \(balance) formats as \(expectedText)")
+            guard let text else { continue }
+            for (appearanceName, _, _, appearanceLabel) in appearances {
+                let appearance = try unwrap(NSAppearance(named: appearanceName), "missing \(appearanceLabel) appearance")
+                let image = UsageBadgeRenderer.rendering(for: usage, style: .doubleRing, appearance: appearance, now: now).image
+                let expectedCenterX = 29 + UsageBadgeRenderer.doubleRingTextOpticalOffset(for: text)
+                try verifyDoubleRingTextCenter(image, description: "credit C\(text)", text: text, ringCenterX: 29, expectedCenterX: expectedCenterX, checkTrackOnlyClearance: true)
+            }
+        }
+        let unlimitedCreditUsage = try makeUsage(primaryRemaining: 0, weeklyRemaining: 88, now: now, unlimitedCredits: true)
+        check(UsageBadgeRenderer.creditBalanceBadgeText(for: unlimitedCreditUsage, now: now) == "∞",
+            "unlimited credit mode uses the centered infinity glyph")
+        for (appearanceName, _, _, appearanceLabel) in appearances {
+            let appearance = try unwrap(NSAppearance(named: appearanceName), "missing \(appearanceLabel) appearance")
+            let image = UsageBadgeRenderer.rendering(for: unlimitedCreditUsage, style: .doubleRing, appearance: appearance, now: now).image
+            try verifyDoubleRingTextCenter(image, description: "credit C∞", text: "∞", ringCenterX: 29, expectedCenterX: 29)
+        }
+        let quotaFiveHourLabel = try unwrap(opaquePixelBounds(in: quotaBitmap, xRange: 4..<15, yRange: 0..<24), "missing 5H label pixels")
+        let creditLabel = try unwrap(opaquePixelBounds(in: creditBitmap, xRange: 4..<15, yRange: 0..<24), "missing credit label pixels")
+        let weeklyLabel = try unwrap(opaquePixelBounds(in: quotaBitmap, xRange: 50..<61, yRange: 0..<24), "missing 7D label pixels")
+        let fiveHourRing = try unwrap(opaquePixelBounds(in: quotaBitmap, xRange: 17..<42, yRange: 0..<24), "missing 5h ring pixels")
+        let creditRing = try unwrap(opaquePixelBounds(in: creditBitmap, xRange: 17..<42, yRange: 0..<24), "missing credit ring pixels")
+        let weeklyRing = try unwrap(opaquePixelBounds(in: quotaBitmap, xRange: 63..<86, yRange: 0..<24), "missing 7-day ring pixels")
+        let weeklyGap = weeklyRing.minX - weeklyLabel.maxX - 1
+        check(weeklyGap == 5, "the 7D reference gap remains five empty pixels")
+        check(fiveHourRing.minX - quotaFiveHourLabel.maxX - 1 == weeklyGap,
+            "the 5H label and its ring have the same pixel gap as the 7D label and ring")
+        check(creditRing.minX - creditLabel.maxX - 1 == weeklyGap,
+            "the credit C and its ring have the same pixel gap as the 7D label and ring")
+        let ringCenterY = pixelCenterY(fiveHourRing)
+        check(abs(pixelCenterY(quotaFiveHourLabel) - ringCenterY) <= 0.5,
+            "the 5H label's visible pixels are vertically centered on its ring")
+        check(abs(pixelCenterY(weeklyLabel) - pixelCenterY(weeklyRing)) <= 0.5,
+            "the 7D label's visible pixels are vertically centered on its ring")
+        check(abs(pixelCenterY(creditLabel) - pixelCenterY(creditRing)) <= 0.5,
+            "the credit C's visible pixels are vertically centered on its ring")
+        let retinaQuotaBitmap = try rasterize(quotaBadge.image, scale: 2)
+        let retinaCreditBitmap = try rasterize(creditBadge.image, scale: 2)
+        let retinaFiveHourLabel = try unwrap(opaquePixelBounds(in: retinaQuotaBitmap, xRange: 4..<15, yRange: 0..<24), "missing Retina 5H label pixels")
+        let retinaCreditLabel = try unwrap(opaquePixelBounds(in: retinaCreditBitmap, xRange: 4..<15, yRange: 0..<24), "missing Retina credit label pixels")
+        let retinaWeeklyLabel = try unwrap(opaquePixelBounds(in: retinaQuotaBitmap, xRange: 50..<61, yRange: 0..<24), "missing Retina 7D label pixels")
+        let retinaFiveHourRing = try unwrap(opaquePixelBounds(in: retinaQuotaBitmap, xRange: 17..<42, yRange: 0..<24), "missing Retina 5h ring pixels")
+        let retinaCreditRing = try unwrap(opaquePixelBounds(in: retinaCreditBitmap, xRange: 17..<42, yRange: 0..<24), "missing Retina credit ring pixels")
+        let retinaWeeklyRing = try unwrap(opaquePixelBounds(in: retinaQuotaBitmap, xRange: 63..<86, yRange: 0..<24), "missing Retina 7-day ring pixels")
+        check(abs(pixelCenterY(retinaFiveHourLabel) - pixelCenterY(retinaFiveHourRing)) <= 0.5,
+            "the Retina 5H label's visible pixels are vertically centered on its ring")
+        check(abs(pixelCenterY(retinaWeeklyLabel) - pixelCenterY(retinaWeeklyRing)) <= 0.5,
+            "the Retina 7D label's visible pixels are vertically centered on its ring")
+        check(abs(pixelCenterY(retinaCreditLabel) - pixelCenterY(retinaCreditRing)) <= 0.5,
+            "the Retina credit C's visible pixels are vertically centered on its ring")
+
+        func verifyReadoutGroup(
+            _ bitmap: NSBitmapImageRep,
+            labelRange: Range<Int>,
+            numberRange: Range<Int>,
+            lineRightEdge: CGFloat,
+            description: String
+        ) throws {
+            let label = try unwrap(opaquePixelBounds(in: bitmap, xRange: labelRange, yRange: 6..<19), "missing Large Readout \(description) label")
+            let number = try unwrap(opaquePixelBounds(in: bitmap, xRange: numberRange, yRange: 6..<19), "missing Large Readout \(description) number")
+            let expectedCenter = Double(CGFloat(label.maxX + 1) + lineRightEdge * CGFloat(bitmap.pixelsWide) / 86) / 2
+            check(abs(pixelCenterX(number) - expectedCenter) <= Double(bitmap.pixelsWide) / 86,
+                "Large Readout \(description) number is centered between its label and progress-line end (number \(number.minX)...\(number.maxX), label end \(label.maxX + 1), center \(pixelCenterX(number)), target \(expectedCenter))")
+            check(abs(pixelCenterY(label) - pixelCenterY(number)) <= 0.5,
+                "Large Readout \(description) label and number share a visible vertical center (label \(pixelCenterY(label)), number \(pixelCenterY(number)))")
+        }
+
+        let largeReadoutQuota = UsageBadgeRenderer.rendering(
+            for: try makeUsage(primaryRemaining: 50, weeklyRemaining: 46, now: now),
+            style: .largeReadout,
+            appearance: darkAppearance,
+            now: now
+        )
+        let largeReadoutCredits = try ["218", "1234"].map { balance in
+            UsageBadgeRenderer.rendering(
+                for: try makeUsage(primaryRemaining: 0, weeklyRemaining: 88, now: now, purchasedCreditBalance: balance),
+                style: .largeReadout,
+                appearance: darkAppearance,
+                now: now
+            )
+        }
+        let quotaReadoutBitmap = try rasterize(largeReadoutQuota.image)
+        for bitmap in [quotaReadoutBitmap, try rasterize(largeReadoutQuota.image, scale: 2)] {
+            try verifyReadoutGroup(bitmap, labelRange: 1..<12, numberRange: 13..<38, lineRightEdge: 38, description: "5H")
+            try verifyReadoutGroup(bitmap, labelRange: 48..<59, numberRange: 60..<85, lineRightEdge: 85, description: "7D")
+        }
+        for credit in largeReadoutCredits {
+            for bitmap in [try rasterize(credit.image), try rasterize(credit.image, scale: 2)] {
+                try verifyReadoutGroup(bitmap, labelRange: 1..<12, numberRange: 13..<38, lineRightEdge: 38, description: "credit C")
+            }
+        }
         let creditsForEmptyWeek = try makeUsage(primaryRemaining: 42, weeklyRemaining: 0, now: now, purchasedCreditBalance: "1234")
         check(UsageBadgeRenderer.creditBalanceBadgeText(for: creditsForEmptyWeek, now: now) == "1234",
             "an exhausted weekly window shows credits even while the 5h window has quota left")
@@ -538,10 +771,36 @@ struct BadgeRenderingAudit {
     }
 
     @MainActor
-    private static func rasterize(_ image: NSImage) throws -> NSBitmapImageRep {
-        guard let tiff = image.tiffRepresentation, let bitmap = NSBitmapImageRep(data: tiff) else {
-            throw AuditFailure(message: "could not rasterize badge image")
+    private static func rasterize(_ image: NSImage, scale: Int = 1) throws -> NSBitmapImageRep {
+        guard scale == 1 || scale == 2 else { throw AuditFailure(message: "unsupported badge image scale") }
+        if scale == 1 {
+            guard let tiff = image.tiffRepresentation, let bitmap = NSBitmapImageRep(data: tiff) else {
+                throw AuditFailure(message: "could not rasterize badge image")
+            }
+            return bitmap
         }
+
+        guard let bitmap = NSBitmapImageRep(
+            bitmapDataPlanes: nil,
+            pixelsWide: 86 * scale,
+            pixelsHigh: 24 * scale,
+            bitsPerSample: 8,
+            samplesPerPixel: 4,
+            hasAlpha: true,
+            isPlanar: false,
+            colorSpaceName: .deviceRGB,
+            bytesPerRow: 0,
+            bitsPerPixel: 0
+        ) else { throw AuditFailure(message: "could not allocate a Retina badge bitmap") }
+        bitmap.size = NSSize(width: 86, height: 24)
+        guard let context = NSGraphicsContext(bitmapImageRep: bitmap) else {
+            throw AuditFailure(message: "could not create a Retina badge context")
+        }
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = context
+        image.draw(in: NSRect(x: 0, y: 0, width: 86, height: 24), from: .zero, operation: .copy, fraction: 1)
+        context.flushGraphics()
+        NSGraphicsContext.restoreGraphicsState()
         return bitmap
     }
 
@@ -596,6 +855,42 @@ struct BadgeRenderingAudit {
     }
 
     @MainActor
+    private static func opaquePixelBounds(
+        in bitmap: NSBitmapImageRep,
+        xRange: Range<Int>,
+        yRange: Range<Int>
+    ) -> (minX: Int, maxX: Int, minY: Int, maxY: Int)? {
+        let scaleX = CGFloat(bitmap.pixelsWide) / 86
+        let scaleY = CGFloat(bitmap.pixelsHigh) / 24
+        let minX = max(0, Int((CGFloat(xRange.lowerBound) * scaleX).rounded(.down)))
+        let maxX = min(bitmap.pixelsWide, Int((CGFloat(xRange.upperBound) * scaleX).rounded(.up)))
+        let minY = max(0, Int((CGFloat(yRange.lowerBound) * scaleY).rounded(.down)))
+        let maxY = min(bitmap.pixelsHigh, Int((CGFloat(yRange.upperBound) * scaleY).rounded(.up)))
+        var firstX = Int.max
+        var lastX = Int.min
+        var firstY = Int.max
+        var lastY = Int.min
+
+        for y in minY..<maxY {
+            for x in minX..<maxX where (bitmap.colorAt(x: x, y: y)?.alphaComponent ?? 0) > 0.05 {
+                firstX = min(firstX, x)
+                lastX = max(lastX, x)
+                firstY = min(firstY, y)
+                lastY = max(lastY, y)
+            }
+        }
+        return firstX == Int.max ? nil : (firstX, lastX, firstY, lastY)
+    }
+
+    private static func pixelCenterY(_ bounds: (minX: Int, maxX: Int, minY: Int, maxY: Int)) -> Double {
+        Double(bounds.minY + bounds.maxY + 1) / 2
+    }
+
+    private static func pixelCenterX(_ bounds: (minX: Int, maxX: Int, minY: Int, maxY: Int)) -> Double {
+        Double(bounds.minX + bounds.maxX + 1) / 2
+    }
+
+    @MainActor
     private static func countPixels(in bitmap: NSBitmapImageRep, xRange: Range<Int>, yRange: Range<Int>? = nil, matching kind: PixelKind) -> Int {
         let scale = CGFloat(bitmap.pixelsWide) / 90
         let minX = max(0, Int((CGFloat(xRange.lowerBound) * scale).rounded(.down)))
@@ -638,6 +933,7 @@ struct BadgeRenderingAudit {
         weeklyExpiry: TimeInterval = 86_400,
         resetCreditCount: Int? = nil,
         purchasedCreditBalance: String? = nil,
+        unlimitedCredits: Bool = false,
         primaryUsedPercent: Double? = nil,
         weeklyUsedPercent: Double? = nil
     ) throws -> UsageSummary {
@@ -656,6 +952,7 @@ struct BadgeRenderingAudit {
                 ),
                 planType: "plus",
                 credits: purchasedCreditBalance.map { RateLimitCreditsSnapshot(hasCredits: true, unlimited: false, balance: $0) }
+                    ?? (unlimitedCredits ? RateLimitCreditsSnapshot(hasCredits: true, unlimited: true, balance: nil) : nil)
             ),
             rateLimitsByLimitId: nil,
             rateLimitResetCredits: resetCreditCount.map { RateLimitResetCredits(availableCount: $0, credits: nil) },

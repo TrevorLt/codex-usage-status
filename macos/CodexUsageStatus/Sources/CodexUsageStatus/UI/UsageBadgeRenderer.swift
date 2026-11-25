@@ -1,4 +1,5 @@
 import AppKit
+import CoreText
 
 struct UsageBadgeRendering {
     /// The complete neutral badge as a template image. AppKit supplies its menu-bar tint.
@@ -32,6 +33,8 @@ struct UsageBadgeRendering {
 enum UsageBadgeRenderer {
     private static let doubleRingImageSize = NSSize(width: 86, height: 24)
     private static let largeReadoutImageSize = NSSize(width: 86, height: 24)
+    // NSCache is thread-safe, though its SDK type isn't marked Sendable.
+    nonisolated(unsafe) private static let doubleRingOpticalOffsetCache = NSCache<NSString, NSNumber>()
 
     static func statusItemLength(for style: BadgeStyle) -> CGFloat {
         switch style {
@@ -384,7 +387,7 @@ enum UsageBadgeRenderer {
 
                 drawLabeledRing(
                     value: left,
-                    labelRect: NSRect(x: 1, y: 3.0, width: 11, height: 18),
+                    labelRect: NSRect(x: 4, y: 4.0, width: 11, height: 18),
                     ringCenter: NSPoint(x: 29, y: 12),
                     foregroundColor: foregroundColor,
                     forcedColor: forcedColor,
@@ -393,7 +396,7 @@ enum UsageBadgeRenderer {
                 )
                 drawLabeledRing(
                     value: right,
-                    labelRect: NSRect(x: 50, y: 3.0, width: 11, height: 18),
+                    labelRect: NSRect(x: 50, y: 4.0, width: 11, height: 18),
                     ringCenter: NSPoint(x: 75, y: 12),
                     foregroundColor: foregroundColor,
                     forcedColor: forcedColor,
@@ -422,12 +425,16 @@ enum UsageBadgeRenderer {
                 let rect = NSRect(origin: .zero, size: largeReadoutImageSize)
                 NSColor.clear.setFill()
                 rect.fill()
+                let leftLabelRect = NSRect(x: 1, y: 4.9, width: 11, height: 11)
+                let leftLineRect = NSRect(x: 1, y: 2.4, width: 37, height: 1.5)
+                let rightLabelRect = NSRect(x: 48, y: 4.9, width: 11, height: 11)
+                let rightLineRect = NSRect(x: 48, y: 2.4, width: 37, height: 1.5)
 
                 drawReadoutGroup(
                     value: left,
-                    labelRect: NSRect(x: 1, y: 6.0, width: 11, height: 11),
-                    numberRect: NSRect(x: 14, y: 3.4, width: 24, height: 17),
-                    lineRect: NSRect(x: 1, y: 2.4, width: 37, height: 1.5),
+                    labelRect: leftLabelRect,
+                    numberRect: readoutNumberRect(for: left, labelRect: leftLabelRect, lineRect: leftLineRect),
+                    lineRect: leftLineRect,
                     foregroundColor: foregroundColor,
                     forcedColor: forcedColor,
                     isStale: isStale,
@@ -435,9 +442,9 @@ enum UsageBadgeRenderer {
                 )
                 drawReadoutGroup(
                     value: right,
-                    labelRect: NSRect(x: 48, y: 6.0, width: 11, height: 11),
-                    numberRect: NSRect(x: 61, y: 3.4, width: 24, height: 17),
-                    lineRect: NSRect(x: 48, y: 2.4, width: 37, height: 1.5),
+                    labelRect: rightLabelRect,
+                    numberRect: readoutNumberRect(for: right, labelRect: rightLabelRect, lineRect: rightLineRect),
+                    lineRect: rightLineRect,
                     foregroundColor: foregroundColor,
                     forcedColor: forcedColor,
                     isStale: isStale,
@@ -449,6 +456,14 @@ enum UsageBadgeRenderer {
 
         image.isTemplate = !warningOverlay && forcedColor == nil
         return image
+    }
+
+    private static func readoutNumberRect(for value: BadgeValue, labelRect: NSRect, lineRect: NSRect) -> NSRect {
+        let labelFont = NSFont.monospacedDigitSystemFont(ofSize: 7.4, weight: .bold)
+        let labelWidth = (value.label.uppercased() as NSString).size(withAttributes: [.font: labelFont]).width
+        let labelRightEdge = labelRect.midX + labelWidth / 2
+        let y: CGFloat = value.centerText.count >= 4 ? 0.4 : (value.centerText.count == 3 ? 2.4 : 3.4)
+        return NSRect(x: labelRightEdge, y: y, width: lineRect.maxX - labelRightEdge, height: 17)
     }
 
     private static func drawLabeledRing(
@@ -514,7 +529,6 @@ enum UsageBadgeRenderer {
         drawText(
             value.centerText,
             center: center,
-            yOffset: -5.5,
             fontSize: ringFontSize(for: value),
             weight: .bold,
             alpha: 0.98,
@@ -576,7 +590,7 @@ enum UsageBadgeRenderer {
             fontSize: readoutFontSize(for: value),
             weight: .bold,
             alpha: 0.96,
-            alignment: .left,
+            alignment: .center,
             foregroundColor: foregroundColor
         )
         if value.isStale { drawReadoutStaleMarker(in: numberRect, foregroundColor: foregroundColor) }
@@ -602,26 +616,50 @@ enum UsageBadgeRenderer {
     private static func drawText(
         _ text: String,
         center: NSPoint,
-        yOffset: CGFloat,
         fontSize: CGFloat,
         weight: NSFont.Weight,
         alpha: CGFloat,
         foregroundColor: NSColor
     ) {
         let font = NSFont.monospacedDigitSystemFont(ofSize: fontSize, weight: weight)
+        let textColor = foregroundColor.withAlphaComponent(alpha)
+        let ctFont = font as CTFont
+        let coreTextColor = textColor.cgColor
         let attributes: [NSAttributedString.Key: Any] = [
-            .font: font,
-            .foregroundColor: foregroundColor.withAlphaComponent(alpha),
-            .paragraphStyle: centeredParagraphStyle,
+            NSAttributedString.Key(kCTFontAttributeName as String): ctFont,
+            NSAttributedString.Key(kCTForegroundColorAttributeName as String): coreTextColor,
         ]
-        let height = fontSize + 2
-        let rect = NSRect(x: center.x - 10, y: center.y + yOffset, width: 20, height: height)
-        text.draw(in: rect, withAttributes: attributes)
+        let line = CTLineCreateWithAttributedString(NSAttributedString(string: text, attributes: attributes))
+        let glyphBounds = CTLineGetBoundsWithOptions(line, .useGlyphPathBounds)
+        guard let context = NSGraphicsContext.current?.cgContext else { return }
+        let opticalOffset = opticalInkOffset(
+            for: text,
+            fontSize: fontSize,
+            line: line,
+            glyphBounds: glyphBounds,
+            foregroundColor: textColor
+        )
+        let opticalLift: CGFloat = text.count == 1 || fontSize < 8.8 ? 0.5 : 0.25
+        context.saveGState()
+        context.textMatrix = .identity
+        context.textPosition = CGPoint(
+            x: center.x - glyphBounds.midX + opticalOffset,
+            y: center.y - glyphBounds.midY + opticalLift
+        )
+        CTLineDraw(line, context)
+        context.restoreGState()
     }
 
     private static func drawSideLabel(_ text: String, in rect: NSRect, foregroundColor: NSColor) {
-        let labelRect = text == "C" ? rect.offsetBy(dx: 3, dy: 0) : rect
-        drawStackedLabel(text, in: labelRect, alpha: 0.78, foregroundColor: foregroundColor, uniformFontSize: 9)
+        // These offsets align the rendered glyph ink after AppKit applies font baselines.
+        let verticalOffset: CGFloat = text.count == 1 ? 0.125 : 0.25
+        drawStackedLabel(
+            text,
+            in: rect.offsetBy(dx: 0, dy: verticalOffset),
+            alpha: 0.78,
+            foregroundColor: foregroundColor,
+            uniformFontSize: 9
+        )
     }
 
     private static func drawStackedLabel(
@@ -640,7 +678,7 @@ enum UsageBadgeRenderer {
         }
 
         let fontSize = uniformFontSize ?? (lines.count > 1 ? 7.4 : 10.0)
-        let lineHeight = uniformFontSize ?? (lines.count > 1 ? 7.5 : 10.8)
+        let lineHeight = uniformFontSize.map { $0 + 0.25 } ?? (lines.count > 1 ? 7.5 : 10.8)
         let totalHeight = CGFloat(lines.count) * lineHeight
         let startY = rect.midY + totalHeight / 2 - lineHeight
 
@@ -677,11 +715,103 @@ enum UsageBadgeRenderer {
     }
 
     private static func ringFontSize(for value: BadgeValue) -> CGFloat {
-        value.centerText.count >= 3 ? 7.4 : 9.0
+        doubleRingFontSize(for: value.centerText)
+    }
+
+    static func doubleRingFontSize(for text: String) -> CGFloat {
+        let preferredSize: CGFloat = text.count <= 2 ? 9.0 : 8.3
+        let maximumWidth: CGFloat = 17
+        var fontSize = preferredSize
+        for _ in 0..<2 {
+            let font = NSFont.monospacedDigitSystemFont(ofSize: fontSize, weight: .bold)
+            let textWidth = (text as NSString).size(withAttributes: [.font: font]).width
+            guard textWidth > maximumWidth, textWidth > 0 else { break }
+            fontSize *= maximumWidth / textWidth
+        }
+        return fontSize
+    }
+
+    static func doubleRingTextOpticalOffset(for text: String) -> CGFloat {
+        let fontSize = doubleRingFontSize(for: text)
+        let font = NSFont.monospacedDigitSystemFont(ofSize: fontSize, weight: .bold)
+        let foregroundColor = NSColor.white
+        let attributes: [NSAttributedString.Key: Any] = [
+            NSAttributedString.Key(kCTFontAttributeName as String): font as CTFont,
+            NSAttributedString.Key(kCTForegroundColorAttributeName as String): foregroundColor.cgColor,
+        ]
+        let line = CTLineCreateWithAttributedString(NSAttributedString(string: text, attributes: attributes))
+        return opticalInkOffset(
+            for: text,
+            fontSize: fontSize,
+            line: line,
+            glyphBounds: CTLineGetBoundsWithOptions(line, .useGlyphPathBounds),
+            foregroundColor: foregroundColor
+        )
+    }
+
+    private static func opticalInkOffset(
+        for text: String,
+        fontSize: CGFloat,
+        line: CTLine,
+        glyphBounds: CGRect,
+        foregroundColor: NSColor
+    ) -> CGFloat {
+        if text == "100" { return -0.2 }
+        guard glyphBounds.width > 0, glyphBounds.height > 0 else { return 0 }
+        let isLightInk = foregroundColor.usingColorSpace(.deviceRGB).map {
+            ($0.redComponent + $0.greenComponent + $0.blueComponent) / 3 >= 0.5
+        } ?? true
+        let cacheKey = "\(text)|\(fontSize)|\(isLightInk)" as NSString
+        if let cached = doubleRingOpticalOffsetCache.object(forKey: cacheKey) {
+            return CGFloat(cached.doubleValue)
+        }
+
+        // Supersample once per rendered value; animation frames reuse the result.
+        let scale: CGFloat = 4
+        let padding: CGFloat = 2
+        let width = Int(ceil((glyphBounds.width + padding * 2) * scale))
+        let height = Int(ceil((glyphBounds.height + padding * 2) * scale))
+        var pixels = [UInt8](repeating: isLightInk ? 0 : 255, count: width * height)
+        let rendered = pixels.withUnsafeMutableBytes { buffer -> Bool in
+            guard let context = CGContext(
+                data: buffer.baseAddress,
+                width: width,
+                height: height,
+                bitsPerComponent: 8,
+                bytesPerRow: width,
+                space: CGColorSpaceCreateDeviceGray(),
+                bitmapInfo: CGImageAlphaInfo.none.rawValue
+            ) else { return false }
+            context.setAllowsAntialiasing(true)
+            context.setShouldAntialias(true)
+            context.scaleBy(x: scale, y: scale)
+            context.textMatrix = .identity
+            context.textPosition = CGPoint(x: padding - glyphBounds.minX, y: padding - glyphBounds.minY)
+            CTLineDraw(line, context)
+            return true
+        }
+        guard rendered else { return 0 }
+
+        var totalWeight = 0.0
+        var weightedX = 0.0
+        for y in 0..<height {
+            for x in 0..<width {
+                let intensity = Double(pixels[y * width + x]) / 255
+                let weight = isLightInk ? intensity : 1 - intensity
+                totalWeight += weight
+                weightedX += (Double(x) + 0.5) / Double(scale) * weight
+            }
+        }
+        guard totalWeight > 0 else { return 0 }
+        let inkCenterX = weightedX / totalWeight - Double(padding) + Double(glyphBounds.minX)
+        let maximumOpticalShift: CGFloat = 0.3
+        let opticalOffset = max(-maximumOpticalShift, min(maximumOpticalShift, glyphBounds.midX - inkCenterX))
+        doubleRingOpticalOffsetCache.setObject(NSNumber(value: Double(opticalOffset)), forKey: cacheKey)
+        return opticalOffset
     }
 
     private static func readoutFontSize(for value: BadgeValue) -> CGFloat {
-        value.centerText.count >= 4 ? 8.8 : (value.centerText.count >= 3 ? 11.6 : 13.2)
+        value.centerText.count >= 4 ? 8.8 : (value.centerText.count >= 3 ? 12.0 : 14.0)
     }
 
     private static func drawRingStaleMarker(near center: NSPoint, foregroundColor: NSColor) {
@@ -690,15 +820,8 @@ enum UsageBadgeRenderer {
     }
 
     private static func drawReadoutStaleMarker(in numberRect: NSRect, foregroundColor: NSColor) {
-        drawString("~", in: NSRect(x: numberRect.minX - 3.1, y: numberRect.maxY - 5.8, width: 3.0, height: 6),
+        drawString("~", in: NSRect(x: numberRect.minX - 1.2, y: numberRect.maxY - 5.8, width: 3.0, height: 6),
                    fontSize: 5.0, weight: .medium, alpha: 0.62, alignment: .center, foregroundColor: foregroundColor)
-    }
-
-    private static var centeredParagraphStyle: NSParagraphStyle {
-        let style = NSMutableParagraphStyle()
-        style.alignment = .center
-        style.lineBreakMode = .byClipping
-        return style
     }
 
     private static var neutralColor: NSColor { NSColor.labelColor }
