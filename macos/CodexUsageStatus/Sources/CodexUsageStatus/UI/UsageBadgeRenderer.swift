@@ -639,7 +639,7 @@ enum UsageBadgeRenderer {
             glyphBounds: glyphBounds,
             foregroundColor: textColor
         )
-        let opticalLift: CGFloat = text.count == 1 || fontSize < 8.8 ? 0.5 : 0.25
+        let opticalLift: CGFloat = text == "100" ? 0.25 : (text.count == 1 || fontSize < 8.8 ? 0.5 : 0.25)
         context.saveGState()
         context.textMatrix = .identity
         context.textPosition = CGPoint(
@@ -719,8 +719,8 @@ enum UsageBadgeRenderer {
     }
 
     static func doubleRingFontSize(for text: String) -> CGFloat {
-        let preferredSize: CGFloat = text.count <= 2 ? 9.0 : 8.3
-        let maximumWidth: CGFloat = 17
+        let preferredSize: CGFloat = text.count <= 2 ? 9.0 : 7.4
+        let maximumWidth: CGFloat = 16.6
         var fontSize = preferredSize
         for _ in 0..<2 {
             let font = NSFont.monospacedDigitSystemFont(ofSize: fontSize, weight: .bold)
@@ -756,7 +756,6 @@ enum UsageBadgeRenderer {
         glyphBounds: CGRect,
         foregroundColor: NSColor
     ) -> CGFloat {
-        if text == "100" { return -0.2 }
         guard glyphBounds.width > 0, glyphBounds.height > 0 else { return 0 }
         let isLightInk = foregroundColor.usingColorSpace(.deviceRGB).map {
             ($0.redComponent + $0.greenComponent + $0.blueComponent) / 3 >= 0.5

@@ -77,7 +77,7 @@ struct BadgeRenderingAudit {
             let fontSize = UsageBadgeRenderer.doubleRingFontSize(for: text)
             let font = NSFont.monospacedDigitSystemFont(ofSize: fontSize, weight: .bold)
             let textWidth = (text as NSString).size(withAttributes: [.font: font]).width
-            check(textWidth <= 17.11, "Double Ring \(description) fits its 17pt text width (\(textWidth)pt)")
+            check(textWidth <= 16.71, "Double Ring \(description) leaves breathing room inside its ring (\(textWidth)pt)")
             for scale in [1, 2] {
                 let bitmap = try rasterize(image, scale: scale)
                 let scaleX = CGFloat(bitmap.pixelsWide) / 86
@@ -92,6 +92,7 @@ struct BadgeRenderingAudit {
                 var maxInkY = Int.min
                 var inkWeight = 0.0
                 var weightedInkX = 0.0
+                var weightedInkY = 0.0
                 for y in minY..<maxY {
                     for x in minX..<maxX {
                         let pointX = (CGFloat(x) + 0.5) / scaleX
@@ -107,6 +108,7 @@ struct BadgeRenderingAudit {
                         maxInkY = max(maxInkY, y)
                         inkWeight += alpha
                         weightedInkX += Double(pointX) * alpha
+                        weightedInkY += Double(pointY) * alpha
                     }
                 }
                 check(minInkX != Int.max, "synthetic \(description) text is visible at \(scale)x")
@@ -114,7 +116,7 @@ struct BadgeRenderingAudit {
                 let centerX = pixelCenterX(inkBounds) / Double(scaleX)
                 let centerY = pixelCenterY(inkBounds) / Double(scaleY)
                 let horizontalTolerance = scale == 1 ? 0.5 : 0.4
-                let verticalTolerance = text.count <= 2 ? (scale == 1 ? 0.5 : 0.25) : 0.5
+                let verticalTolerance = text.count <= 2 || text == "100" ? (scale == 1 ? 0.5 : 0.25) : 0.5
                 let expectedCenterY = 12.0
                 check(abs(centerX - Double(expectedCenterX)) <= horizontalTolerance,
                     "Double Ring \(description) ink is horizontally centered at \(scale)x (center \(centerX)pt, target \(expectedCenterX)pt)")
@@ -144,6 +146,12 @@ struct BadgeRenderingAudit {
                     let inkCenterX = weightedInkX / inkWeight
                     check(abs(inkCenterX - Double(ringCenterX)) <= 0.22,
                         "Double Ring \(description) visual ink mass is optically centered (center \(inkCenterX)pt, target \(ringCenterX)pt)")
+                }
+                if text == "100", scale == 2 {
+                    let inkCenterX = weightedInkX / inkWeight
+                    let inkCenterY = weightedInkY / inkWeight
+                    check(abs(inkCenterX - Double(ringCenterX)) <= 0.25 && abs(inkCenterY - 12) <= 0.25,
+                        "Double Ring \(description) visual ink center is centered (center \(inkCenterX), \(inkCenterY)pt; target \(ringCenterX), 12pt)")
                 }
             }
         }
